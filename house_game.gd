@@ -1,9 +1,10 @@
 extends Node3D
 
 const PEARL_COUNT := 1
-const FOAM_COUNT := 100000
+const MAX_FOAM_COUNT := 100000
 const FOAM_RADIUS := 0.042
 const FOAM_DIAMETER := FOAM_RADIUS * 2.0
+const FOAM_BASE_Y := 0.09
 const FOAM_CELL_SIZE := 0.55
 const WALK_SPEED := 4.4
 const LOOK_SPEED := 0.0025
@@ -11,6 +12,7 @@ const LOOK_SPEED := 0.0025
 var player: CharacterBody3D
 var view: Camera3D
 var foam_root: Node3D
+var stage_root: Node3D
 var pearls: Array[PhysicsBody3D] = []
 var foam_materials: Array[StandardMaterial3D] = []
 var foam_positions: Array[Vector3] = []
@@ -42,6 +44,15 @@ var result_panel: PanelContainer
 var crosshair: Label
 var menu: VBoxContainer
 var menu_panel: PanelContainer
+var shop_panel: PanelContainer
+var shop_title: Label
+var shop_money: Label
+var sell_button: Button
+var buy_uv_button: Button
+var buy_blower_button: Button
+var upgrade_uv_button: Button
+var upgrade_blower_button: Button
+var next_level_button: Button
 var tools_bar: HBoxContainer
 var tool_buttons: Array[Button] = []
 var selected_tool := 0
@@ -60,6 +71,17 @@ var mouse_captured := false
 var blow_cooldown := 0.0
 var push_cooldown := 0.0
 var chain_time := 0.0
+var coins := 0
+var current_level := 1
+var pearl_sold := false
+var owns_uv := false
+var owns_blower := false
+var uv_level := 0
+var blower_level := 0
+var level_foam_counts := [10, 50, 200, 600, 1500, 4000, 10000, 25000, 50000, 100000]
+var level_values := [25, 45, 75, 110, 160, 230, 320, 450, 650, 1000]
+var level_names := ["TINY BOX", "BIG BOX", "BEDROOM", "PLAYROOM", "SMALL HOUSE", "TWO ROOMS", "FOAM HOUSE", "STORAGE", "FACTORY", "MEGA WAREHOUSE"]
+var current_foam_count := 10
 
 
 func _ready() -> void:
@@ -174,6 +196,9 @@ func make_house() -> void:
 	foam_root = Node3D.new()
 	foam_root.name = "FoamAndPearls"
 	add_child(foam_root)
+	stage_root = Node3D.new()
+	stage_root.name = "LevelLayout"
+	add_child(stage_root)
 
 
 func make_light_switch() -> void:
@@ -329,7 +354,7 @@ func make_ui() -> void:
 	subtitle.add_theme_color_override("font_color", Color("a8c9c7"))
 	menu.add_child(subtitle)
 	var controls := Label.new()
-	controls.text = "WASD move   ·   Mouse look   ·   Click / E interact\n1–3 tools   ·   R restart   ·   M menu\nLight switch beside the front door"
+	controls.text = "Start with your hand. Find and sell the pearl.\nBuy tools, upgrade them, and clear 3 changing levels.\nWASD move · Mouse look · Click/E interact · 1–3 tools"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 16)
 	controls.add_theme_color_override("font_color", Color("c7d8d7"))
@@ -341,13 +366,15 @@ func make_ui() -> void:
 	normal_button.add_theme_stylebox_override("hover", ui_panel_style(Color("347c84")))
 	normal_button.pressed.connect(func(): start_round("normal"))
 	menu.add_child(normal_button)
+	normal_button.visible = false
 	var hard_button := Button.new()
-	hard_button.text = "HARD     Hand only, one bead at a time"
+	hard_button.text = "START CAREER     Begin with your bare hands"
 	hard_button.custom_minimum_size.y = 50.0
 	hard_button.add_theme_stylebox_override("normal", ui_panel_style(Color("253d4b")))
 	hard_button.add_theme_stylebox_override("hover", ui_panel_style(Color("365465")))
-	hard_button.pressed.connect(func(): start_round("hard"))
+	hard_button.pressed.connect(start_new_career)
 	menu.add_child(hard_button)
+	make_shop_ui(root)
 	tools_bar = HBoxContainer.new()
 	tools_bar.anchor_left = 0.5
 	tools_bar.anchor_right = 0.5
@@ -374,6 +401,49 @@ func make_ui() -> void:
 	update_ui()
 
 
+func make_shop_ui(root: Control) -> void:
+	shop_panel = PanelContainer.new()
+	shop_panel.anchor_left = 0.5
+	shop_panel.anchor_right = 0.5
+	shop_panel.anchor_top = 0.5
+	shop_panel.anchor_bottom = 0.5
+	shop_panel.offset_left = -270.0
+	shop_panel.offset_right = 270.0
+	shop_panel.offset_top = -230.0
+	shop_panel.offset_bottom = 230.0
+	shop_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.04, 0.09, 0.13, 0.96), Color("d6b86c")))
+	shop_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(shop_panel)
+	var shop := VBoxContainer.new()
+	shop.add_theme_constant_override("separation", 9)
+	shop_panel.add_child(shop)
+	shop_title = Label.new()
+	shop_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	shop_title.add_theme_font_size_override("font_size", 29)
+	shop_title.add_theme_color_override("font_color", Color("fff1bf"))
+	shop.add_child(shop_title)
+	shop_money = Label.new()
+	shop_money.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	shop_money.add_theme_font_size_override("font_size", 20)
+	shop.add_child(shop_money)
+	sell_button = shop_button(shop, "SELL PEARL", sell_pearl)
+	buy_uv_button = shop_button(shop, "BUY UV FLASHLIGHT — 50", buy_uv)
+	buy_blower_button = shop_button(shop, "BUY FOAM BLOWER — 120", buy_blower)
+	upgrade_uv_button = shop_button(shop, "UPGRADE UV RANGE — 100", upgrade_uv)
+	upgrade_blower_button = shop_button(shop, "UPGRADE BLOWER — 150", upgrade_blower)
+	next_level_button = shop_button(shop, "NEXT LEVEL", next_level)
+	shop_panel.visible = false
+
+
+func shop_button(parent: Control, text_value: String, callback: Callable) -> Button:
+	var button := Button.new()
+	button.text = text_value
+	button.custom_minimum_size.y = 44.0
+	button.pressed.connect(callback)
+	parent.add_child(button)
+	return button
+
+
 func show_modes() -> void:
 	playing = false
 	mode = ""
@@ -386,10 +456,22 @@ func show_modes() -> void:
 	uv_flashlight.visible = false
 	result.text = ""
 	result_panel.visible = false
+	shop_panel.visible = false
 	message = ""
 	mouse_captured = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	update_ui()
+
+
+func start_new_career() -> void:
+	coins = 0
+	current_level = 1
+	pearl_sold = false
+	owns_uv = false
+	owns_blower = false
+	uv_level = 0
+	blower_level = 0
+	start_round("career")
 
 
 func start_round(chosen_mode: String) -> void:
@@ -412,6 +494,8 @@ func start_round(chosen_mode: String) -> void:
 	foam_stack_columns.clear()
 	foam_stack_keys.clear()
 	mode = chosen_mode
+	pearl_sold = false
+	current_foam_count = level_foam_counts[current_level - 1]
 	found = 0
 	removed_foam = 0
 	selected_tool = 0
@@ -426,25 +510,27 @@ func start_round(chosen_mode: String) -> void:
 	room_light_on = true
 	room_light.visible = true
 	update_light_switch()
-	player.position = Vector3(0.0, 0.1, 11.0)
+	build_level_layout()
+	var bounds := level_bounds()
+	player.position = Vector3(0.0, 0.1, minf(6.0, bounds.w + 1.2))
 	player.rotation = Vector3.ZERO
 	view.rotation = Vector3.ZERO
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	for i in PEARL_COUNT:
 		var spot := random_room_spot(rng)
-		var pearl_pos := Vector3(spot.x, FOAM_RADIUS, spot.y)
+		var pearl_pos := Vector3(spot.x, FOAM_BASE_Y, spot.y)
 		var pearl := add_pearl(pearl_pos, rng)
 		pearls.append(pearl)
 	var group_counts := [0, 0, 0, 0, 0]
-	for i in FOAM_COUNT:
+	for i in current_foam_count:
 		var spot := random_room_spot(rng)
 		var x := spot.x
 		var z := spot.y
 		var stack_key := Vector2i(floori(x / FOAM_DIAMETER), floori(z / FOAM_DIAMETER))
 		if not foam_stack_columns.has(stack_key):
 			foam_stack_columns[stack_key] = []
-		var height := FOAM_RADIUS + float(foam_stack_columns[stack_key].size()) * FOAM_DIAMETER
+		var height := FOAM_BASE_Y + float(foam_stack_columns[stack_key].size()) * FOAM_DIAMETER
 		x = (float(stack_key.x) + 0.5) * FOAM_DIAMETER
 		z = (float(stack_key.y) + 0.5) * FOAM_DIAMETER
 		foam_positions.append(Vector3(x, height, z))
@@ -470,26 +556,87 @@ func start_round(chosen_mode: String) -> void:
 	hud_panel.visible = true
 	tools_bar.visible = true
 	hint_panel.visible = false
-	tool_buttons[1].visible = mode == "normal"
-	tool_buttons[2].visible = mode == "normal"
-	tools_bar.offset_left = -116.0 if mode == "normal" else -36.0
-	tools_bar.offset_right = 116.0 if mode == "normal" else 36.0
+	tool_buttons[1].visible = owns_uv
+	tool_buttons[2].visible = owns_blower
+	var visible_tools := 1 + int(owns_uv) + int(owns_blower)
+	tools_bar.offset_left = -40.0 * visible_tools
+	tools_bar.offset_right = 40.0 * visible_tools
 	crosshair.visible = true
 	result.text = ""
 	result_panel.visible = false
+	shop_panel.visible = false
+	apply_level_theme()
 	capture_mouse()
 	update_ui()
 
 
+func apply_level_theme() -> void:
+	var palettes := [
+		[Color("f8f2dd"), Color("d9edf2"), Color("f4dce5"), Color("e4e2f5"), Color("e2f0d8")],
+		[Color("cfe8e8"), Color("a9d6d2"), Color("f0d0a8"), Color("d8c7ef"), Color("bdd7c1")],
+		[Color("8b91a7"), Color("69788f"), Color("98768b"), Color("667a78"), Color("b08b68")]
+	]
+	var theme_index := (current_level - 1) % palettes.size()
+	for i in foam_materials.size():
+		foam_materials[i].albedo_color = palettes[theme_index][i]
+	room_light.light_color = [Color("fff1cf"), Color("c9f4ef"), Color("d6c4ff")][theme_index]
+	room_light.light_energy = maxf(1.8, 4.2 - float(current_level - 1) * 0.25)
+
+
 func random_room_spot(rng: RandomNumberGenerator) -> Vector2:
+	var bounds := level_bounds()
 	for attempt in 20:
-		var x := rng.randf_range(-8.45, 8.45)
-		var z := rng.randf_range(-8.45, 6.45)
+		var x := rng.randf_range(bounds.x, bounds.y)
+		var z := rng.randf_range(bounds.z, bounds.w)
 		var inside_sofa := x < -5.5 and z < -6.15
 		var inside_shelf := x > 7.6 and z > 0.45 and z < 3.55
 		if not inside_sofa and not inside_shelf:
 			return Vector2(x, z)
 	return Vector2.ZERO
+
+
+func level_bounds() -> Vector4:
+	var sizes := [0.65, 1.2, 2.2, 3.1, 4.1, 5.0, 6.0, 7.0, 7.8, 8.4]
+	var size: float = sizes[current_level - 1]
+	return Vector4(-size, size, -size, minf(size, 6.4))
+
+
+func build_level_layout() -> void:
+	for child in stage_root.get_children():
+		child.queue_free()
+	var bounds := level_bounds()
+	var width := bounds.y - bounds.x
+	var depth := bounds.w - bounds.z
+	var accent_colors := [Color("d8a86d"), Color("78aab4"), Color("b184aa"), Color("79a778")]
+	var accent: Color = accent_colors[(current_level - 1) % accent_colors.size()]
+	var floor_mesh := BoxMesh.new()
+	floor_mesh.size = Vector3(width + 0.35, 0.018, depth + 0.35)
+	var floor_visual := MeshInstance3D.new()
+	floor_visual.mesh = floor_mesh
+	# Keep the decorative level floor slightly above the house floor to prevent z-fighting.
+	floor_visual.position = Vector3(0.0, 0.039, (bounds.z + bounds.w) * 0.5)
+	floor_visual.material_override = make_material(accent.darkened(0.28))
+	stage_root.add_child(floor_visual)
+	# Early levels are literal boxes; later stages open into rooms, houses and warehouse lanes.
+	if current_level <= 4:
+		add_stage_wall(Vector3(bounds.x, 0.28, (bounds.z + bounds.w) * 0.5), Vector3(0.12, 0.55, depth), accent)
+		add_stage_wall(Vector3(bounds.y, 0.28, (bounds.z + bounds.w) * 0.5), Vector3(0.12, 0.55, depth), accent)
+		add_stage_wall(Vector3(0.0, 0.28, bounds.z), Vector3(width, 0.55, 0.12), accent)
+	elif current_level >= 6:
+		var lanes := mini(4, current_level - 4)
+		for lane in range(1, lanes):
+			var x := lerpf(bounds.x, bounds.y, float(lane) / float(lanes))
+			add_stage_wall(Vector3(x, 0.42, (bounds.z + bounds.w) * 0.5), Vector3(0.16, 0.84, depth * 0.62), accent)
+
+
+func add_stage_wall(position: Vector3, size: Vector3, color: Color) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	var visual := MeshInstance3D.new()
+	visual.mesh = mesh
+	visual.position = position
+	visual.material_override = make_material(color)
+	stage_root.add_child(visual)
 
 
 func add_pearl(position: Vector3, rng: RandomNumberGenerator) -> StaticBody3D:
@@ -556,7 +703,7 @@ func rebuild_stack_column(key: Vector2i) -> void:
 	for index in foam_stack_columns[key]:
 		if not foam_alive[index]:
 			continue
-		foam_rest_heights[index] = FOAM_RADIUS + float(layer) * FOAM_DIAMETER
+		foam_rest_heights[index] = FOAM_BASE_Y + float(layer) * FOAM_DIAMETER
 		if absf(foam_positions[index].y - foam_rest_heights[index]) > 0.005 and not foam_moving[index]:
 			foam_moving[index] = true
 			moving_indices.append(index)
@@ -581,7 +728,7 @@ func transfer_foam_stack(index: int, new_key: Vector2i) -> void:
 		foam_stack_columns[new_key] = []
 	foam_stack_columns[new_key].append(index)
 	foam_stack_keys[index] = new_key
-	foam_rest_heights[index] = FOAM_RADIUS + float(foam_stack_columns[new_key].size() - 1) * FOAM_DIAMETER
+	foam_rest_heights[index] = FOAM_BASE_Y + float(foam_stack_columns[new_key].size() - 1) * FOAM_DIAMETER
 
 
 func foam_near(position: Vector3, radius: float) -> Array[int]:
@@ -648,8 +795,8 @@ func move_foam(delta: float) -> void:
 		velocity.y += (foam_rest_heights[index] - foam_positions[index].y) * 9.0 * delta
 		velocity *= 0.94
 		var position := foam_positions[index] + velocity * delta
-		if position.y < FOAM_RADIUS:
-			position.y = FOAM_RADIUS
+		if position.y < FOAM_BASE_Y:
+			position.y = FOAM_BASE_Y
 			velocity.y = absf(velocity.y) * 0.48
 			velocity.x *= 0.82
 			velocity.z *= 0.82
@@ -746,9 +893,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			update_ui()
 		elif event.keycode == KEY_1 and playing:
 			select_tool(0)
-		elif event.keycode == KEY_2 and playing and mode == "normal":
+		elif event.keycode == KEY_2 and playing and owns_uv:
 			select_tool(1)
-		elif event.keycode == KEY_3 and playing and mode == "normal":
+		elif event.keycode == KEY_3 and playing and owns_blower:
 			select_tool(2)
 		elif event.keycode == KEY_E and playing:
 			search_center()
@@ -780,7 +927,7 @@ func search_center() -> void:
 		message = "UV is scanning. Switch to your hand or blower to move foam."
 		update_ui()
 		return
-	if mode == "normal" and blower_on:
+	if owns_blower and blower_on:
 		blow_forward()
 		return
 	var foam_hit := ray_pick_foam(origin, direction, 3.2)
@@ -799,11 +946,7 @@ func search_center() -> void:
 		pearls.erase(bead)
 		message = "Pearl found! %d / %d" % [found, PEARL_COUNT]
 		if found == PEARL_COUNT:
-			playing = false
-			mouse_captured = false
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-			result.text = "YOU FOUND EVERY PEARL!\nR: play again   M: choose mode"
-			result_panel.visible = true
+			open_shop()
 		bead.queue_free()
 	else:
 		message = "Move closer to the foam and aim at a bead."
@@ -850,9 +993,11 @@ func blow_forward() -> void:
 func blow_at(center: Vector3) -> void:
 	var affected := 0
 	var forward := -view.global_basis.z
-	for i in foam_near(center, 1.15):
+	var blow_radius := 1.15 + float(blower_level) * 0.35
+	var blow_power := 1.35 + float(blower_level) * 0.4
+	for i in foam_near(center, blow_radius):
 		var outward: Vector3 = (foam_positions[i] - center).normalized()
-		foam_velocities[i] += (forward * 0.75 + outward * 0.45 + Vector3.UP * 0.45) * 1.35
+		foam_velocities[i] += (forward * 0.75 + outward * 0.45 + Vector3.UP * 0.45) * blow_power
 		if not foam_moving[i]:
 			foam_moving[i] = true
 			moving_indices.append(i)
@@ -861,8 +1006,87 @@ func blow_at(center: Vector3) -> void:
 	update_ui()
 
 
+func open_shop() -> void:
+	playing = false
+	mouse_captured = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	tools_bar.visible = false
+	crosshair.visible = false
+	hint_panel.visible = false
+	shop_panel.visible = true
+	update_shop()
+
+
+func update_shop() -> void:
+	shop_title.text = "LEVEL %d COMPLETE\nTHE PEARL MARKET" % current_level
+	shop_money.text = "COINS   %d" % coins
+	sell_button.text = "SELL PEARL   +%d COINS" % level_values[current_level - 1]
+	sell_button.disabled = pearl_sold
+	buy_uv_button.visible = not owns_uv
+	buy_uv_button.disabled = coins < 50
+	buy_blower_button.visible = not owns_blower
+	buy_blower_button.disabled = coins < 120
+	upgrade_uv_button.visible = owns_uv and uv_level < 2
+	upgrade_uv_button.disabled = coins < 100
+	upgrade_blower_button.visible = owns_blower and blower_level < 2
+	upgrade_blower_button.disabled = coins < 150
+	next_level_button.disabled = not pearl_sold
+	next_level_button.text = "NEXT LEVEL  %d" % (current_level + 1) if current_level < 10 else "PLAY FINAL LEVEL AGAIN"
+
+
+func sell_pearl() -> void:
+	if pearl_sold:
+		return
+	coins += level_values[current_level - 1]
+	pearl_sold = true
+	update_shop()
+
+
+func buy_uv() -> void:
+	if coins < 50 or owns_uv:
+		return
+	coins -= 50
+	owns_uv = true
+	uv_level = 1
+	update_shop()
+
+
+func buy_blower() -> void:
+	if coins < 120 or owns_blower:
+		return
+	coins -= 120
+	owns_blower = true
+	blower_level = 1
+	update_shop()
+
+
+func upgrade_uv() -> void:
+	if coins < 100 or not owns_uv or uv_level >= 2:
+		return
+	coins -= 100
+	uv_level += 1
+	update_shop()
+
+
+func upgrade_blower() -> void:
+	if coins < 150 or not owns_blower or blower_level >= 2:
+		return
+	coins -= 150
+	blower_level += 1
+	update_shop()
+
+
+func next_level() -> void:
+	if not pearl_sold:
+		return
+	current_level = mini(10, current_level + 1)
+	start_round("career")
+
+
 func select_tool(index: int) -> void:
-	if mode == "hard" and index != 0:
+	if index == 1 and not owns_uv:
+		return
+	if index == 2 and not owns_blower:
 		return
 	selected_tool = index
 	uv_on = index == 1
@@ -888,13 +1112,15 @@ func update_uv_hint() -> void:
 		return
 	var nearest: PhysicsBody3D = pearls[0]
 	var visual: MeshInstance3D = nearest.get_child(0)
-	if not playing or (not secret_vision and (mode != "normal" or not uv_on)):
+	if not playing or (not secret_vision and not uv_on):
 		visual.material_override = pearl_material
 		uv_found = false
 		return
 	var direction := nearest.global_position - view.global_position
 	var distance := direction.length()
-	var aimed := distance < 1.9 and (-view.global_basis.z).dot(direction.normalized()) > cos(deg_to_rad(9.0))
+	var uv_range := 1.9 + float(maxi(0, uv_level - 1)) * 0.8
+	uv_flashlight.spot_range = uv_range
+	var aimed := distance < uv_range and (-view.global_basis.z).dot(direction.normalized()) > cos(deg_to_rad(9.0))
 	var uv_caught := uv_on and aimed and pearl_fully_visible(view.global_position, nearest.global_position)
 	var highlighted := secret_vision or uv_caught
 	visual.material_override = pearl_glow_material if highlighted else pearl_material
@@ -929,7 +1155,7 @@ func pearl_fully_visible(origin: Vector3, target: Vector3) -> bool:
 func update_ui() -> void:
 	if hud == null:
 		return
-	hud.text = "%s    PEARL  %d/%d    FOAM  %s/%s" % [mode.to_upper(), found, PEARL_COUNT, str(removed_foam), str(FOAM_COUNT)]
+	hud.text = "LEVEL %d/10 · %s    COINS %d    PEARL %d/%d    FOAM %s/%s" % [current_level, level_names[current_level - 1], coins, found, PEARL_COUNT, str(removed_foam), str(current_foam_count)]
 	hint.text = message
 	hint_panel.visible = playing and not message.is_empty()
 	for i in tool_buttons.size():

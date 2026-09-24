@@ -1,3 +1,23 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Local export builds
+*.exe
+*.console.exe
+/export_templates/
+/feature_profiles/
+/script_templates/
+/text_editor_themes/
+# Root web export files are copied to docs/ for GitHub Pages
+/pearl.html
+/pearl.js
+/pearl.wasm
+/pearl.pck
+/pearl.audio*.js
+/pearl.icon.png
+/pearl.apple-touch-icon.png
+/pearl.png
+/pearl.png.import
+/pearl.icon.png.import
+/pearl.apple-touch-icon.png.import
