@@ -82,6 +82,16 @@ var level_foam_counts := [10, 50, 200, 600, 1500, 4000, 10000, 25000, 50000, 100
 var level_values := [25, 45, 75, 110, 160, 230, 320, 450, 650, 1000]
 var level_names := ["TINY BOX", "BIG BOX", "BEDROOM", "PLAYROOM", "SMALL HOUSE", "TWO ROOMS", "FOAM HOUSE", "STORAGE", "FACTORY", "MEGA WAREHOUSE"]
 var current_foam_count := 10
+var cleanup_phase := 0
+var dirt_spots: Array[StaticBody3D] = []
+var misplaced_items: Array[StaticBody3D] = []
+var cleaned_surfaces := 0
+var organized_items := 0
+var room_dirt_counts := [2, 3, 4, 5, 7]
+var room_item_counts := [2, 3, 4, 5, 7]
+var cleanup_room_names := ["GRAND FOYER", "GUEST ROOM", "DINING HALL", "LIBRARY", "BALLROOM"]
+var cleanup_foam_counts := [40, 120, 300, 700, 1500]
+var phase_names := ["CLEAR FOAM", "CLEAN SURFACES", "ORGANIZE ROOM"]
 
 
 func _ready() -> void:
@@ -342,19 +352,19 @@ func make_ui() -> void:
 	menu.mouse_filter = Control.MOUSE_FILTER_STOP
 	menu_panel.add_child(menu)
 	var title := Label.new()
-	title.text = "FIND THE PEARL"
+	title.text = "MANSION CLEANUP"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 32)
 	title.add_theme_color_override("font_color", Color("fff3cc"))
 	menu.add_child(title)
 	var subtitle := Label.new()
-	subtitle.text = "One pearl hidden in a house of foam."
+	subtitle.text = "Restore five rooms in a huge low-poly mansion."
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 17)
 	subtitle.add_theme_color_override("font_color", Color("a8c9c7"))
 	menu.add_child(subtitle)
 	var controls := Label.new()
-	controls.text = "Start with your hand. Find and sell the pearl.\nBuy tools, upgrade them, and clear 3 changing levels.\nWASD move · Mouse look · Click/E interact · 1–3 tools"
+	controls.text = "1. Clear every foam bead   2. Mop floors and wipe walls\n3. Put fallen objects back in place\nWASD move · Mouse look · Click/E interact"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 16)
 	controls.add_theme_color_override("font_color", Color("c7d8d7"))
@@ -368,7 +378,7 @@ func make_ui() -> void:
 	menu.add_child(normal_button)
 	normal_button.visible = false
 	var hard_button := Button.new()
-	hard_button.text = "START CAREER     Begin with your bare hands"
+	hard_button.text = "START CLEANING     Enter the mansion"
 	hard_button.custom_minimum_size.y = 50.0
 	hard_button.add_theme_stylebox_override("normal", ui_panel_style(Color("253d4b")))
 	hard_button.add_theme_stylebox_override("hover", ui_panel_style(Color("365465")))
@@ -479,6 +489,12 @@ func start_round(chosen_mode: String) -> void:
 		foam_root.remove_child(child)
 		child.free()
 	pearls.clear()
+	for dirt in dirt_spots:
+		if is_instance_valid(dirt): dirt.queue_free()
+	for item in misplaced_items:
+		if is_instance_valid(item): item.queue_free()
+	dirt_spots.clear()
+	misplaced_items.clear()
 	foam_positions.clear()
 	foam_rest_heights.clear()
 	foam_velocities.clear()
@@ -495,9 +511,12 @@ func start_round(chosen_mode: String) -> void:
 	foam_stack_keys.clear()
 	mode = chosen_mode
 	pearl_sold = false
-	current_foam_count = level_foam_counts[current_level - 1]
+	current_foam_count = cleanup_foam_counts[current_level - 1]
 	found = 0
 	removed_foam = 0
+	cleanup_phase = 0
+	cleaned_surfaces = 0
+	organized_items = 0
 	selected_tool = 0
 	uv_on = false
 	uv_found = false
@@ -517,11 +536,6 @@ func start_round(chosen_mode: String) -> void:
 	view.rotation = Vector3.ZERO
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
-	for i in PEARL_COUNT:
-		var spot := random_room_spot(rng)
-		var pearl_pos := Vector3(spot.x, FOAM_BASE_Y, spot.y)
-		var pearl := add_pearl(pearl_pos, rng)
-		pearls.append(pearl)
 	var group_counts := [0, 0, 0, 0, 0]
 	for i in current_foam_count:
 		var spot := random_room_spot(rng)
@@ -551,6 +565,7 @@ func start_round(chosen_mode: String) -> void:
 			foam_cells[cell] = []
 		foam_cells[cell].append(i)
 	build_foam_meshes(group_counts)
+	build_cleanup_tasks(rng)
 	playing = true
 	menu_panel.visible = false
 	hud_panel.visible = true
@@ -566,6 +581,7 @@ func start_round(chosen_mode: String) -> void:
 	result_panel.visible = false
 	shop_panel.visible = false
 	apply_level_theme()
+	message = "PHASE 1: Remove every foam bead to reveal the room."
 	capture_mouse()
 	update_ui()
 
@@ -596,7 +612,7 @@ func random_room_spot(rng: RandomNumberGenerator) -> Vector2:
 
 
 func level_bounds() -> Vector4:
-	var sizes := [0.65, 1.2, 2.2, 3.1, 4.1, 5.0, 6.0, 7.0, 7.8, 8.4]
+	var sizes := [2.4, 3.4, 4.6, 6.0, 8.0]
 	var size: float = sizes[current_level - 1]
 	return Vector4(-size, size, -size, minf(size, 6.4))
 
@@ -617,16 +633,16 @@ func build_level_layout() -> void:
 	floor_visual.position = Vector3(0.0, 0.039, (bounds.z + bounds.w) * 0.5)
 	floor_visual.material_override = make_material(accent.darkened(0.28))
 	stage_root.add_child(floor_visual)
-	# Early levels are literal boxes; later stages open into rooms, houses and warehouse lanes.
-	if current_level <= 4:
-		add_stage_wall(Vector3(bounds.x, 0.28, (bounds.z + bounds.w) * 0.5), Vector3(0.12, 0.55, depth), accent)
-		add_stage_wall(Vector3(bounds.y, 0.28, (bounds.z + bounds.w) * 0.5), Vector3(0.12, 0.55, depth), accent)
-		add_stage_wall(Vector3(0.0, 0.28, bounds.z), Vector3(width, 0.55, 0.12), accent)
-	elif current_level >= 6:
-		var lanes := mini(4, current_level - 4)
-		for lane in range(1, lanes):
-			var x := lerpf(bounds.x, bounds.y, float(lane) / float(lanes))
-			add_stage_wall(Vector3(x, 0.42, (bounds.z + bounds.w) * 0.5), Vector3(0.16, 0.84, depth * 0.62), accent)
+	add_stage_wall(Vector3(bounds.x, 0.55, (bounds.z + bounds.w) * 0.5), Vector3(0.16, 1.1, depth), accent)
+	add_stage_wall(Vector3(bounds.y, 0.55, (bounds.z + bounds.w) * 0.5), Vector3(0.16, 1.1, depth), accent)
+	add_stage_wall(Vector3(0.0, 0.55, bounds.z), Vector3(width, 1.1, 0.16), accent)
+	# Temporary low-poly furniture. Real assets can replace these mockup blocks later.
+	var furniture := 2 + current_level * 2
+	for i in furniture:
+		var side := -1.0 if i % 2 == 0 else 1.0
+		var x := side * (width * 0.30)
+		var z := lerpf(bounds.z + 0.8, bounds.w - 0.8, float(i + 1) / float(furniture + 1))
+		add_stage_wall(Vector3(x, 0.32, z), Vector3(0.9 + 0.15 * (i % 3), 0.64, 0.55), accent.lightened(0.12))
 
 
 func add_stage_wall(position: Vector3, size: Vector3, color: Color) -> void:
@@ -637,6 +653,126 @@ func add_stage_wall(position: Vector3, size: Vector3, color: Color) -> void:
 	visual.position = position
 	visual.material_override = make_material(color)
 	stage_root.add_child(visual)
+
+
+func build_cleanup_tasks(rng: RandomNumberGenerator) -> void:
+	var bounds := level_bounds()
+	for i in room_dirt_counts[current_level - 1]:
+		var on_wall: bool = i % 2 == 1
+		var pos := Vector3(rng.randf_range(bounds.x + 0.7, bounds.y - 0.7), 0.065, rng.randf_range(bounds.z + 0.7, bounds.w - 0.7))
+		var size := Vector3(0.72, 0.025, 0.72)
+		if on_wall:
+			pos = Vector3(rng.randf_range(bounds.x + 0.8, bounds.y - 0.8), rng.randf_range(0.7, 2.2), bounds.z + 0.11)
+			size = Vector3(0.72, 0.62, 0.04)
+		var dirt := make_cleanup_body("Wall grime" if on_wall else "Floor dirt", pos, size, Color("665044"), 8)
+		dirt_spots.append(dirt)
+	for i in room_item_counts[current_level - 1]:
+		var pos2 := Vector3(rng.randf_range(bounds.x + 0.9, bounds.y - 0.9), 0.20, rng.randf_range(bounds.z + 0.9, bounds.w - 0.9))
+		var item := make_cleanup_body("Fallen object", pos2, Vector3(0.34, 0.34, 0.34), [Color("e17d7d"), Color("76b8c4"), Color("e4bd62")][i % 3], 16)
+		var target := Vector3(lerpf(bounds.x + 0.8, bounds.y - 0.8, float(i + 1) / float(room_item_counts[current_level - 1] + 1)), 0.20, bounds.z + 0.55)
+		item.set_meta("target", target)
+		misplaced_items.append(item)
+		var marker_mesh := BoxMesh.new()
+		marker_mesh.size = Vector3(0.42, 0.025, 0.42)
+		var marker := MeshInstance3D.new()
+		marker.mesh = marker_mesh
+		marker.position = Vector3(target.x, 0.06, target.z)
+		marker.material_override = make_material(Color(0.35, 0.85, 0.55, 0.45))
+		marker.visible = false
+		marker.set_meta("organize_marker", true)
+		stage_root.add_child(marker)
+	set_cleanup_tasks_visible(false, false)
+
+
+func make_cleanup_body(body_name: String, position: Vector3, size: Vector3, color: Color, layer: int) -> StaticBody3D:
+	var body := StaticBody3D.new()
+	body.name = body_name
+	body.position = position
+	body.collision_layer = layer
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	var visual := MeshInstance3D.new()
+	visual.mesh = mesh
+	visual.material_override = make_material(color)
+	body.add_child(visual)
+	var shape := BoxShape3D.new()
+	shape.size = size
+	var collision := CollisionShape3D.new()
+	collision.shape = shape
+	body.add_child(collision)
+	stage_root.add_child(body)
+	return body
+
+
+func set_cleanup_tasks_visible(show_dirt: bool, show_items: bool) -> void:
+	for dirt in dirt_spots:
+		if is_instance_valid(dirt):
+			dirt.visible = show_dirt
+			dirt.collision_layer = 8 if show_dirt else 0
+	for item in misplaced_items:
+		if is_instance_valid(item):
+			item.visible = show_items
+			item.collision_layer = 16 if show_items else 0
+	for child in stage_root.get_children():
+		if child.has_meta("organize_marker"):
+			child.visible = show_items
+
+
+func advance_cleanup_phase() -> void:
+	if cleanup_phase == 0:
+		cleanup_phase = 1
+		set_cleanup_tasks_visible(true, false)
+		message = "PHASE 2: Mop floor stains and wipe grime from the walls."
+	elif cleanup_phase == 1:
+		cleanup_phase = 2
+		set_cleanup_tasks_visible(false, true)
+		message = "PHASE 3: Click fallen objects to return them to the green markers."
+	else:
+		complete_cleanup_room()
+	update_ui()
+
+
+func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
+	var mask := 8 if cleanup_phase == 1 else 16
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * 4.2)
+	query.collision_mask = mask
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		message = "Aim at a dirty patch." if cleanup_phase == 1 else "Aim at a fallen object."
+		update_ui()
+		return true
+	var body: StaticBody3D = hit["collider"]
+	if cleanup_phase == 1:
+		cleaned_surfaces += 1
+		dirt_spots.erase(body)
+		body.queue_free()
+		message = "Surface cleaned. %d / %d" % [cleaned_surfaces, room_dirt_counts[current_level - 1]]
+		if cleaned_surfaces >= room_dirt_counts[current_level - 1]: advance_cleanup_phase()
+	else:
+		organized_items += 1
+		misplaced_items.erase(body)
+		body.collision_layer = 0
+		var tween := create_tween()
+		tween.tween_property(body, "position", body.get_meta("target"), 0.35).set_trans(Tween.TRANS_BACK)
+		message = "Object returned. %d / %d" % [organized_items, room_item_counts[current_level - 1]]
+		if organized_items >= room_item_counts[current_level - 1]:
+			await tween.finished
+			advance_cleanup_phase()
+	update_ui()
+	return true
+
+
+func complete_cleanup_room() -> void:
+	playing = false
+	mouse_captured = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	coins += level_values[current_level - 1]
+	pearl_sold = true
+	tools_bar.visible = false
+	crosshair.visible = false
+	hint_panel.visible = false
+	shop_panel.visible = true
+	update_shop()
 
 
 func add_pearl(position: Vector3, rng: RandomNumberGenerator) -> StaticBody3D:
@@ -923,6 +1059,9 @@ func search_center() -> void:
 	if not switch_hit.is_empty() and switch_hit["collider"] == light_switch:
 		toggle_room_light()
 		return
+	if cleanup_phase > 0:
+		interact_cleanup_task(origin, direction)
+		return
 	if uv_on:
 		message = "UV is scanning. Switch to your hand or blower to move foam."
 		update_ui()
@@ -940,6 +1079,8 @@ func search_center() -> void:
 		remove_foam(index)
 		removed_foam += 1
 		message = "One foam bead removed. Keep searching."
+		if removed_foam >= current_foam_count:
+			advance_cleanup_phase()
 	elif not pearl_hit.is_empty():
 		var bead: PhysicsBody3D = pearl_hit["collider"]
 		found += 1
@@ -1018,20 +1159,15 @@ func open_shop() -> void:
 
 
 func update_shop() -> void:
-	shop_title.text = "LEVEL %d COMPLETE\nTHE PEARL MARKET" % current_level
-	shop_money.text = "COINS   %d" % coins
-	sell_button.text = "SELL PEARL   +%d COINS" % level_values[current_level - 1]
-	sell_button.disabled = pearl_sold
-	buy_uv_button.visible = not owns_uv
-	buy_uv_button.disabled = coins < 50
-	buy_blower_button.visible = not owns_blower
-	buy_blower_button.disabled = coins < 120
-	upgrade_uv_button.visible = owns_uv and uv_level < 2
-	upgrade_uv_button.disabled = coins < 100
-	upgrade_blower_button.visible = owns_blower and blower_level < 2
-	upgrade_blower_button.disabled = coins < 150
-	next_level_button.disabled = not pearl_sold
-	next_level_button.text = "NEXT LEVEL  %d" % (current_level + 1) if current_level < 10 else "PLAY FINAL LEVEL AGAIN"
+	shop_title.text = "ROOM %d COMPLETE\n%s RESTORED" % [current_level, cleanup_room_names[current_level - 1]]
+	shop_money.text = "CLEANUP REWARD   +%d     TOTAL   %d" % [level_values[current_level - 1], coins]
+	sell_button.visible = false
+	buy_uv_button.visible = false
+	buy_blower_button.visible = false
+	upgrade_uv_button.visible = false
+	upgrade_blower_button.visible = false
+	next_level_button.disabled = false
+	next_level_button.text = "ENTER ROOM %d" % (current_level + 1) if current_level < 5 else "REPLAY BALLROOM"
 
 
 func sell_pearl() -> void:
@@ -1079,7 +1215,7 @@ func upgrade_blower() -> void:
 func next_level() -> void:
 	if not pearl_sold:
 		return
-	current_level = mini(10, current_level + 1)
+	current_level = mini(5, current_level + 1)
 	start_round("career")
 
 
@@ -1155,7 +1291,12 @@ func pearl_fully_visible(origin: Vector3, target: Vector3) -> bool:
 func update_ui() -> void:
 	if hud == null:
 		return
-	hud.text = "LEVEL %d/10 · %s    COINS %d    PEARL %d/%d    FOAM %s/%s" % [current_level, level_names[current_level - 1], coins, found, PEARL_COUNT, str(removed_foam), str(current_foam_count)]
+	var progress := "%d/%d FOAM" % [removed_foam, current_foam_count]
+	if cleanup_phase == 1:
+		progress = "%d/%d SURFACES" % [cleaned_surfaces, room_dirt_counts[current_level - 1]]
+	elif cleanup_phase == 2:
+		progress = "%d/%d OBJECTS" % [organized_items, room_item_counts[current_level - 1]]
+	hud.text = "ROOM %d/5 · %s    PHASE %d/3 · %s    %s" % [current_level, cleanup_room_names[current_level - 1], cleanup_phase + 1, phase_names[cleanup_phase], progress]
 	hint.text = message
 	hint_panel.visible = playing and not message.is_empty()
 	for i in tool_buttons.size():
