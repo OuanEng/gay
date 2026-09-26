@@ -61,6 +61,9 @@ var skill_panel: PanelContainer
 var skill_points_label: Label
 var skill_buttons: Array[Button] = []
 var skill_from_shop := false
+var skill_from_pause := false
+var pause_panel: PanelContainer
+var game_paused := false
 var selected_tool := 0
 var uv_marker: Label
 var mode := ""
@@ -77,6 +80,7 @@ var mouse_captured := false
 var blow_cooldown := 0.0
 var push_cooldown := 0.0
 var chain_time := 0.0
+var last_foam_assist_timer := 0.0
 var coins := 0
 var current_level := 1
 var pearl_sold := false
@@ -399,6 +403,7 @@ func make_ui() -> void:
 	menu.add_child(hard_button)
 	make_shop_ui(root)
 	make_skill_tree_ui(root)
+	make_pause_ui(root)
 	tools_bar = HBoxContainer.new()
 	tools_bar.anchor_left = 0.5
 	tools_bar.anchor_right = 0.5
@@ -512,6 +517,48 @@ func make_skill_tree_ui(root: Control) -> void:
 	update_skill_tree()
 
 
+func make_pause_ui(root: Control) -> void:
+	pause_panel = PanelContainer.new()
+	pause_panel.anchor_left = 0.5
+	pause_panel.anchor_right = 0.5
+	pause_panel.anchor_top = 0.5
+	pause_panel.anchor_bottom = 0.5
+	pause_panel.offset_left = -245.0
+	pause_panel.offset_right = 245.0
+	pause_panel.offset_top = -230.0
+	pause_panel.offset_bottom = 230.0
+	pause_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.035, 0.07, 0.10, 0.97), Color("7bb8c2")))
+	pause_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(pause_panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 12)
+	pause_panel.add_child(column)
+	var title := Label.new()
+	title.text = "GAME PAUSED"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", Color("fff0c7"))
+	column.add_child(title)
+	var room_label := Label.new()
+	room_label.text = "Take a break. Your room progress is safe."
+	room_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	room_label.add_theme_color_override("font_color", Color("b8cbd0"))
+	column.add_child(room_label)
+	shop_button(column, "RESUME GAME     [ESC]", resume_game)
+	shop_button(column, "OPEN SKILL TREE     [K]", func(): open_skill_tree(false, true))
+	shop_button(column, "RESTART CURRENT ROOM", restart_from_pause)
+	shop_button(column, "CONTROLS", show_pause_controls)
+	shop_button(column, "RETURN TO MAIN MENU", return_to_menu_from_pause)
+	var controls := Label.new()
+	controls.name = "PauseControls"
+	controls.text = "WASD Move  ·  Mouse Look  ·  Click/E Interact\nCtrl/C Crouch  ·  K Skill Tree  ·  1–3 Tools"
+	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	controls.add_theme_color_override("font_color", Color("9fc1c5"))
+	controls.visible = false
+	column.add_child(controls)
+	pause_panel.visible = false
+
+
 func shop_button(parent: Control, text_value: String, callback: Callable) -> Button:
 	var button := Button.new()
 	button.text = text_value
@@ -521,11 +568,14 @@ func shop_button(parent: Control, text_value: String, callback: Callable) -> But
 	return button
 
 
-func open_skill_tree(from_shop: bool = false) -> void:
+func open_skill_tree(from_shop: bool = false, from_pause: bool = false) -> void:
 	skill_from_shop = from_shop
+	skill_from_pause = from_pause
 	skill_panel.visible = true
 	if shop_panel != null:
 		shop_panel.visible = false
+	if pause_panel != null:
+		pause_panel.visible = false
 	mouse_captured = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	update_skill_tree()
@@ -535,8 +585,51 @@ func close_skill_tree() -> void:
 	skill_panel.visible = false
 	if skill_from_shop:
 		shop_panel.visible = true
+	elif skill_from_pause:
+		pause_panel.visible = true
 	elif playing:
 		capture_mouse()
+	skill_from_shop = false
+	skill_from_pause = false
+
+
+func pause_game() -> void:
+	if not playing:
+		return
+	game_paused = true
+	mouse_captured = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	pause_panel.visible = true
+	tools_bar.visible = false
+	crosshair.visible = false
+	hint_panel.visible = false
+
+
+func resume_game() -> void:
+	game_paused = false
+	pause_panel.visible = false
+	tools_bar.visible = true
+	crosshair.visible = true
+	capture_mouse()
+	update_ui()
+
+
+func restart_from_pause() -> void:
+	game_paused = false
+	pause_panel.visible = false
+	start_round(mode)
+
+
+func return_to_menu_from_pause() -> void:
+	game_paused = false
+	pause_panel.visible = false
+	show_modes()
+
+
+func show_pause_controls() -> void:
+	var controls := pause_panel.find_child("PauseControls", true, false) as Label
+	if controls != null:
+		controls.visible = not controls.visible
 
 
 func upgrade_skill(branch: int) -> void:
@@ -591,6 +684,7 @@ func update_skill_tree() -> void:
 
 func show_modes() -> void:
 	playing = false
+	game_paused = false
 	mode = ""
 	menu_panel.visible = true
 	hud_panel.visible = false
@@ -603,6 +697,7 @@ func show_modes() -> void:
 	result_panel.visible = false
 	shop_panel.visible = false
 	skill_panel.visible = false
+	pause_panel.visible = false
 	message = ""
 	mouse_captured = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -653,6 +748,8 @@ func start_round(chosen_mode: String) -> void:
 	foam_stack_columns.clear()
 	foam_stack_keys.clear()
 	mode = chosen_mode
+	game_paused = false
+	pause_panel.visible = false
 	pearl_sold = false
 	current_foam_count = cleanup_foam_counts[current_level - 1]
 	found = 0
@@ -668,6 +765,7 @@ func start_round(chosen_mode: String) -> void:
 	blow_cooldown = 0.0
 	push_cooldown = 0.0
 	chain_time = 0.0
+	last_foam_assist_timer = 0.0
 	message = ""
 	room_light_on = true
 	room_light.visible = true
@@ -1054,10 +1152,11 @@ func foam_near(position: Vector3, radius: float) -> Array[int]:
 
 
 func _physics_process(delta: float) -> void:
-	if not playing:
+	if not playing or game_paused:
 		return
 	blow_cooldown = maxf(0.0, blow_cooldown - delta)
 	push_cooldown = maxf(0.0, push_cooldown - delta)
+	last_foam_assist_timer += delta
 	if blower_on and mouse_captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and blow_cooldown <= 0.0:
 		blow_forward()
 		blow_cooldown = 0.22
@@ -1200,11 +1299,11 @@ func push_foam_around_player() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_K:
+		if event.keycode == KEY_K and (playing or shop_panel.visible):
 			if skill_panel.visible:
 				close_skill_tree()
 			else:
-				open_skill_tree(shop_panel.visible)
+				open_skill_tree(shop_panel.visible, game_paused)
 		elif event.keycode == KEY_F10 and playing:
 			secret_vision = not secret_vision
 			update_uv_hint()
@@ -1212,11 +1311,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			show_modes()
 		elif event.keycode == KEY_R and mode != "":
 			start_round(mode)
+		elif event.keycode == KEY_ESCAPE and skill_panel.visible:
+			close_skill_tree()
+		elif event.keycode == KEY_ESCAPE and game_paused:
+			resume_game()
 		elif event.keycode == KEY_ESCAPE and playing:
-			mouse_captured = false
-			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-			message = "Mouse released. Click to continue."
-			update_ui()
+			pause_game()
 		elif event.keycode == KEY_1 and playing:
 			select_tool(0)
 		elif event.keycode == KEY_2 and playing and owns_uv:
@@ -1228,7 +1328,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and mouse_captured:
 		player.rotate_y(-event.relative.x * LOOK_SPEED)
 		view.rotation.x = clampf(view.rotation.x - event.relative.y * LOOK_SPEED, -1.45, 1.45)
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and playing:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and playing and not game_paused and not skill_panel.visible:
 		if mouse_captured:
 			search_center()
 		else:
@@ -1268,6 +1368,7 @@ func search_center() -> void:
 		var index: int = foam_hit["index"]
 		var picked := remove_foam_cluster(index)
 		removed_foam += picked
+		last_foam_assist_timer = 0.0
 		message = "%d foam bead%s removed." % [picked, "s" if picked > 1 else ""]
 		if removed_foam >= current_foam_count:
 			advance_cleanup_phase()
@@ -1436,6 +1537,7 @@ func toggle_room_light() -> void:
 func update_uv_hint() -> void:
 	uv_marker.visible = false
 	if pearls.is_empty():
+		update_last_foam_assist()
 		return
 	var nearest: PhysicsBody3D = pearls[0]
 	var visual: MeshInstance3D = nearest.get_child(0)
@@ -1465,6 +1567,70 @@ func update_uv_hint() -> void:
 		uv_marker.text = "↶  PEARL BEHIND  %.1fm" % distance
 		uv_marker.position = Vector2(get_viewport().get_visible_rect().size.x * 0.5 - 130.0, 155.0)
 		uv_marker.visible = true
+
+
+func update_last_foam_assist() -> void:
+	if not playing or game_paused or cleanup_phase != 0:
+		return
+	var remaining := current_foam_count - removed_foam
+	if remaining > 10 or remaining <= 0:
+		return
+	var nearest := -1
+	var nearest_distance := INF
+	var bounds := level_bounds()
+	for i in foam_alive.size():
+		if not foam_alive[i]:
+			continue
+		if foam_positions[i].y < FOAM_BASE_Y - 0.02 or foam_positions[i].x < bounds.x or foam_positions[i].x > bounds.y or foam_positions[i].z < bounds.z or foam_positions[i].z > bounds.w:
+			relocate_hidden_foam(i)
+		var distance := view.global_position.distance_to(foam_positions[i])
+		if distance < nearest_distance:
+			nearest_distance = distance
+			nearest = i
+	if nearest < 0:
+		return
+	if remaining <= 5 and last_foam_assist_timer >= 8.0:
+		relocate_hidden_foam(nearest)
+		nearest_distance = view.global_position.distance_to(foam_positions[nearest])
+		last_foam_assist_timer = 0.0
+		message = "Cleanup radar rescued a hidden foam bead. Look in front of you."
+		update_ui()
+	var target := foam_positions[nearest]
+	var screen := get_viewport().get_visible_rect().size
+	if not view.is_position_behind(target):
+		uv_marker.text = "◆  FOAM %d LEFT  ·  %.1fm" % [remaining, nearest_distance]
+		uv_marker.position = view.unproject_position(target).clamp(Vector2(30.0, 125.0), screen - Vector2(260.0, 55.0)) - Vector2(18.0, 26.0)
+	else:
+		uv_marker.text = "↶  LAST FOAM BEHIND  ·  %.1fm" % nearest_distance
+		uv_marker.position = Vector2(screen.x * 0.5 - 150.0, 125.0)
+	uv_marker.visible = true
+
+
+func relocate_hidden_foam(index: int) -> void:
+	if index < 0 or index >= foam_alive.size() or not foam_alive[index]:
+		return
+	var old_cell := foam_cell_keys[index]
+	if foam_cells.has(old_cell):
+		foam_cells[old_cell].erase(index)
+	var front := -view.global_basis.z
+	front.y = 0.0
+	if front.length_squared() < 0.01:
+		front = Vector3.FORWARD
+	var bounds := level_bounds()
+	var target := player.global_position + front.normalized() * 1.35
+	target.x = clampf(target.x, bounds.x + 0.35, bounds.y - 0.35)
+	target.z = clampf(target.z, bounds.z + 0.35, bounds.w - 0.35)
+	target.y = FOAM_BASE_Y
+	foam_positions[index] = target
+	foam_velocities[index] = Vector3.ZERO
+	transfer_foam_stack(index, foam_stack_cell_for(target))
+	foam_positions[index].y = foam_rest_heights[index]
+	var new_cell := foam_cell_for(foam_positions[index])
+	if not foam_cells.has(new_cell):
+		foam_cells[new_cell] = []
+	foam_cells[new_cell].append(index)
+	foam_cell_keys[index] = new_cell
+	update_foam_transform(index)
 
 
 func pearl_fully_visible(origin: Vector3, target: Vector3) -> bool:
