@@ -11,6 +11,8 @@ const LOOK_SPEED := 0.0025
 
 var player: CharacterBody3D
 var view: Camera3D
+var player_collider: CollisionShape3D
+var player_capsule: CapsuleShape3D
 var foam_root: Node3D
 var stage_root: Node3D
 var pearls: Array[PhysicsBody3D] = []
@@ -55,6 +57,10 @@ var upgrade_blower_button: Button
 var next_level_button: Button
 var tools_bar: HBoxContainer
 var tool_buttons: Array[Button] = []
+var skill_panel: PanelContainer
+var skill_points_label: Label
+var skill_buttons: Array[Button] = []
+var skill_from_shop := false
 var selected_tool := 0
 var uv_marker: Label
 var mode := ""
@@ -82,6 +88,13 @@ var level_foam_counts := [10, 50, 200, 600, 1500, 4000, 10000, 25000, 50000, 100
 var level_values := [25, 45, 75, 110, 160, 230, 320, 450, 650, 1000]
 var level_names := ["TINY BOX", "BIG BOX", "BEDROOM", "PLAYROOM", "SMALL HOUSE", "TWO ROOMS", "FOAM HOUSE", "STORAGE", "FACTORY", "MEGA WAREHOUSE"]
 var current_foam_count := 10
+var skill_points := 2
+var hand_skill := 0
+var blower_skill := 0
+var mop_skill := 0
+var organize_skill := 0
+var mobility_skill := 0
+var crouching := false
 var cleanup_phase := 0
 var dirt_spots: Array[StaticBody3D] = []
 var misplaced_items: Array[StaticBody3D] = []
@@ -252,13 +265,13 @@ func make_player() -> void:
 	player.position = Vector3(0.0, 0.1, 11.0)
 	player.collision_layer = 1
 	player.collision_mask = 3
-	var capsule := CapsuleShape3D.new()
-	capsule.radius = 0.35
-	capsule.height = 1.7
-	var collider := CollisionShape3D.new()
-	collider.shape = capsule
-	collider.position.y = 0.85
-	player.add_child(collider)
+	player_capsule = CapsuleShape3D.new()
+	player_capsule.radius = 0.35
+	player_capsule.height = 1.7
+	player_collider = CollisionShape3D.new()
+	player_collider.shape = player_capsule
+	player_collider.position.y = 0.85
+	player.add_child(player_collider)
 	view = Camera3D.new()
 	view.position.y = 1.55
 	view.current = true
@@ -364,7 +377,7 @@ func make_ui() -> void:
 	subtitle.add_theme_color_override("font_color", Color("a8c9c7"))
 	menu.add_child(subtitle)
 	var controls := Label.new()
-	controls.text = "1. Clear every foam bead   2. Mop floors and wipe walls\n3. Put fallen objects back in place\nWASD move · Mouse look · Click/E interact"
+	controls.text = "1. Clear every foam bead   2. Mop floors and wipe walls\n3. Put fallen objects back in place\nWASD move · Click/E interact · Ctrl/C crouch · K skill tree"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 16)
 	controls.add_theme_color_override("font_color", Color("c7d8d7"))
@@ -385,6 +398,7 @@ func make_ui() -> void:
 	hard_button.pressed.connect(start_new_career)
 	menu.add_child(hard_button)
 	make_shop_ui(root)
+	make_skill_tree_ui(root)
 	tools_bar = HBoxContainer.new()
 	tools_bar.anchor_left = 0.5
 	tools_bar.anchor_right = 0.5
@@ -441,8 +455,61 @@ func make_shop_ui(root: Control) -> void:
 	buy_blower_button = shop_button(shop, "BUY FOAM BLOWER — 120", buy_blower)
 	upgrade_uv_button = shop_button(shop, "UPGRADE UV RANGE — 100", upgrade_uv)
 	upgrade_blower_button = shop_button(shop, "UPGRADE BLOWER — 150", upgrade_blower)
+	shop_button(shop, "OPEN SKILL TREE", func(): open_skill_tree(true))
 	next_level_button = shop_button(shop, "NEXT LEVEL", next_level)
 	shop_panel.visible = false
+
+
+func make_skill_tree_ui(root: Control) -> void:
+	skill_panel = PanelContainer.new()
+	skill_panel.anchor_left = 0.5
+	skill_panel.anchor_right = 0.5
+	skill_panel.anchor_top = 0.5
+	skill_panel.anchor_bottom = 0.5
+	skill_panel.offset_left = -360.0
+	skill_panel.offset_right = 360.0
+	skill_panel.offset_top = -280.0
+	skill_panel.offset_bottom = 280.0
+	skill_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.035, 0.075, 0.11, 0.98), Color("8a6fd1")))
+	skill_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(skill_panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 10)
+	skill_panel.add_child(column)
+	var title := Label.new()
+	title.text = "CLEANER SKILL TREE"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", Color("eadcff"))
+	column.add_child(title)
+	skill_points_label = Label.new()
+	skill_points_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skill_points_label.add_theme_font_size_override("font_size", 20)
+	column.add_child(skill_points_label)
+	var intro := Label.new()
+	intro.text = "Spend points earned from restored rooms. Each branch has 3 levels."
+	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	intro.add_theme_color_override("font_color", Color("b9cbd2"))
+	column.add_child(intro)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	column.add_child(grid)
+	var labels := ["QUICK HANDS", "FOAM BLOWER", "DEEP CLEAN", "ORGANIZER MAGNET", "LIGHT FEET"]
+	for i in labels.size():
+		var button := Button.new()
+		button.custom_minimum_size = Vector2(325.0, 68.0)
+		button.pressed.connect(upgrade_skill.bind(i))
+		grid.add_child(button)
+		skill_buttons.append(button)
+	var close := Button.new()
+	close.text = "CLOSE SKILL TREE    [K]"
+	close.custom_minimum_size.y = 44.0
+	close.pressed.connect(close_skill_tree)
+	column.add_child(close)
+	skill_panel.visible = false
+	update_skill_tree()
 
 
 func shop_button(parent: Control, text_value: String, callback: Callable) -> Button:
@@ -452,6 +519,74 @@ func shop_button(parent: Control, text_value: String, callback: Callable) -> But
 	button.pressed.connect(callback)
 	parent.add_child(button)
 	return button
+
+
+func open_skill_tree(from_shop: bool = false) -> void:
+	skill_from_shop = from_shop
+	skill_panel.visible = true
+	if shop_panel != null:
+		shop_panel.visible = false
+	mouse_captured = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	update_skill_tree()
+
+
+func close_skill_tree() -> void:
+	skill_panel.visible = false
+	if skill_from_shop:
+		shop_panel.visible = true
+	elif playing:
+		capture_mouse()
+
+
+func upgrade_skill(branch: int) -> void:
+	if skill_points <= 0:
+		message = "No skill points. Restore another room to earn more."
+		update_skill_tree()
+		return
+	var level := get_skill_level(branch)
+	if level >= 3:
+		return
+	skill_points -= 1
+	set_skill_level(branch, level + 1)
+	if branch == 1:
+		owns_blower = true
+		blower_level = blower_skill
+		if tool_buttons.size() >= 3:
+			tool_buttons[2].visible = true
+	update_skill_tree()
+	update_ui()
+
+
+func get_skill_level(branch: int) -> int:
+	return [hand_skill, blower_skill, mop_skill, organize_skill, mobility_skill][branch]
+
+
+func set_skill_level(branch: int, value: int) -> void:
+	match branch:
+		0: hand_skill = value
+		1: blower_skill = value
+		2: mop_skill = value
+		3: organize_skill = value
+		4: mobility_skill = value
+
+
+func update_skill_tree() -> void:
+	if skill_points_label == null:
+		return
+	skill_points_label.text = "SKILL POINTS   %d" % skill_points
+	var names := ["QUICK HANDS", "FOAM BLOWER", "DEEP CLEAN", "ORGANIZER MAGNET", "LIGHT FEET"]
+	var details := [
+		"Pick up more nearby foam per click",
+		"Unlock blower, then improve power and radius",
+		"Remove several nearby floor or wall stains",
+		"Longer reach and faster object placement",
+		"Move faster and crouch without slowing as much"
+	]
+	for i in skill_buttons.size():
+		var level := get_skill_level(i)
+		skill_buttons[i].text = "%s   %d/3\n%s" % [names[i], level, details[i]]
+		skill_buttons[i].disabled = level >= 3 or skill_points <= 0
 
 
 func show_modes() -> void:
@@ -467,6 +602,7 @@ func show_modes() -> void:
 	result.text = ""
 	result_panel.visible = false
 	shop_panel.visible = false
+	skill_panel.visible = false
 	message = ""
 	mouse_captured = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -476,6 +612,13 @@ func show_modes() -> void:
 func start_new_career() -> void:
 	coins = 0
 	current_level = 1
+	skill_points = 2
+	hand_skill = 0
+	blower_skill = 0
+	mop_skill = 0
+	organize_skill = 0
+	mobility_skill = 0
+	crouching = false
 	pearl_sold = false
 	owns_uv = false
 	owns_blower = false
@@ -734,7 +877,8 @@ func advance_cleanup_phase() -> void:
 
 func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
 	var mask := 8 if cleanup_phase == 1 else 16
-	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * 4.2)
+	var reach := 4.2 + float(organize_skill) * 0.8 if cleanup_phase == 2 else 4.2
+	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * reach)
 	query.collision_mask = mask
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
@@ -743,9 +887,18 @@ func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
 		return true
 	var body: StaticBody3D = hit["collider"]
 	if cleanup_phase == 1:
-		cleaned_surfaces += 1
-		dirt_spots.erase(body)
-		body.queue_free()
+		var cleaned_now := 0
+		var max_clean := 1 + mop_skill
+		var center := body.global_position
+		var candidates := dirt_spots.duplicate()
+		for dirt in candidates:
+			if cleaned_now >= max_clean:
+				break
+			if is_instance_valid(dirt) and (dirt == body or dirt.global_position.distance_to(center) <= 0.65 + float(mop_skill) * 0.55):
+				dirt_spots.erase(dirt)
+				dirt.queue_free()
+				cleaned_now += 1
+		cleaned_surfaces += cleaned_now
 		message = "Surface cleaned. %d / %d" % [cleaned_surfaces, room_dirt_counts[current_level - 1]]
 		if cleaned_surfaces >= room_dirt_counts[current_level - 1]: advance_cleanup_phase()
 	else:
@@ -753,7 +906,8 @@ func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
 		misplaced_items.erase(body)
 		body.collision_layer = 0
 		var tween := create_tween()
-		tween.tween_property(body, "position", body.get_meta("target"), 0.35).set_trans(Tween.TRANS_BACK)
+		var organize_time := maxf(0.12, 0.42 - float(organize_skill) * 0.09)
+		tween.tween_property(body, "position", body.get_meta("target"), organize_time).set_trans(Tween.TRANS_BACK)
 		message = "Object returned. %d / %d" % [organized_items, room_item_counts[current_level - 1]]
 		if organized_items >= room_item_counts[current_level - 1]:
 			await tween.finished
@@ -767,6 +921,7 @@ func complete_cleanup_room() -> void:
 	mouse_captured = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	coins += level_values[current_level - 1]
+	skill_points += 2
 	pearl_sold = true
 	tools_bar.visible = false
 	crosshair.visible = false
@@ -854,6 +1009,23 @@ func remove_foam(index: int) -> void:
 	update_foam_transform(index)
 
 
+func remove_foam_cluster(center_index: int) -> int:
+	var removed := 0
+	var limit := 1 + hand_skill * 2
+	var candidates: Array[int] = [center_index]
+	if hand_skill > 0:
+		for nearby in foam_near(foam_positions[center_index], FOAM_DIAMETER * (2.0 + float(hand_skill))):
+			if nearby != center_index:
+				candidates.append(nearby)
+	for index in candidates:
+		if removed >= limit:
+			break
+		if index >= 0 and index < foam_alive.size() and foam_alive[index]:
+			remove_foam(index)
+			removed += 1
+	return removed
+
+
 func transfer_foam_stack(index: int, new_key: Vector2i) -> void:
 	var old_key := foam_stack_keys[index]
 	if new_key == old_key:
@@ -894,9 +1066,15 @@ func _physics_process(delta: float) -> void:
 	if Input.is_key_pressed(KEY_D): axis.x += 1.0
 	if Input.is_key_pressed(KEY_W): axis.y -= 1.0
 	if Input.is_key_pressed(KEY_S): axis.y += 1.0
+	var wants_crouch := Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_C)
+	if wants_crouch != crouching:
+		set_crouching(wants_crouch)
 	var move_dir := (player.global_basis.x * axis.x + player.global_basis.z * axis.y).normalized()
-	player.velocity.x = move_dir.x * WALK_SPEED
-	player.velocity.z = move_dir.z * WALK_SPEED
+	var move_speed := WALK_SPEED * (1.0 + float(mobility_skill) * 0.12)
+	if crouching:
+		move_speed *= 0.68 + float(mobility_skill) * 0.07
+	player.velocity.x = move_dir.x * move_speed
+	player.velocity.z = move_dir.z * move_speed
 	player.velocity.y -= 18.0 * delta
 	player.move_and_slide()
 	if push_cooldown <= 0.0:
@@ -905,6 +1083,13 @@ func _physics_process(delta: float) -> void:
 	move_foam(delta)
 	update_uv_hint()
 	update_switch_prompt()
+
+
+func set_crouching(enabled: bool) -> void:
+	crouching = enabled
+	view.position.y = 0.82 if crouching else 1.55
+	player_capsule.height = 1.0 if crouching else 1.7
+	player_collider.position.y = 0.50 if crouching else 0.85
 
 
 func update_switch_prompt() -> void:
@@ -1015,7 +1200,12 @@ func push_foam_around_player() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
-		if event.keycode == KEY_F10 and playing:
+		if event.keycode == KEY_K:
+			if skill_panel.visible:
+				close_skill_tree()
+			else:
+				open_skill_tree(shop_panel.visible)
+		elif event.keycode == KEY_F10 and playing:
 			secret_vision = not secret_vision
 			update_uv_hint()
 		elif event.keycode == KEY_M:
@@ -1076,9 +1266,9 @@ func search_center() -> void:
 	var pearl_distance := origin.distance_to(pearl_hit["position"]) if not pearl_hit.is_empty() else INF
 	if foam_hit["index"] >= 0 and foam_hit["distance"] < pearl_distance:
 		var index: int = foam_hit["index"]
-		remove_foam(index)
-		removed_foam += 1
-		message = "One foam bead removed. Keep searching."
+		var picked := remove_foam_cluster(index)
+		removed_foam += picked
+		message = "%d foam bead%s removed." % [picked, "s" if picked > 1 else ""]
 		if removed_foam >= current_foam_count:
 			advance_cleanup_phase()
 	elif not pearl_hit.is_empty():
@@ -1168,6 +1358,7 @@ func update_shop() -> void:
 	upgrade_blower_button.visible = false
 	next_level_button.disabled = false
 	next_level_button.text = "ENTER ROOM %d" % (current_level + 1) if current_level < 5 else "REPLAY BALLROOM"
+	update_skill_tree()
 
 
 func sell_pearl() -> void:
@@ -1296,7 +1487,8 @@ func update_ui() -> void:
 		progress = "%d/%d SURFACES" % [cleaned_surfaces, room_dirt_counts[current_level - 1]]
 	elif cleanup_phase == 2:
 		progress = "%d/%d OBJECTS" % [organized_items, room_item_counts[current_level - 1]]
-	hud.text = "ROOM %d/5 · %s    PHASE %d/3 · %s    %s" % [current_level, cleanup_room_names[current_level - 1], cleanup_phase + 1, phase_names[cleanup_phase], progress]
+	var stance := "CROUCH" if crouching else "STAND"
+	hud.text = "ROOM %d/5 · %s    PHASE %d/3 · %s    %s    SP %d    %s" % [current_level, cleanup_room_names[current_level - 1], cleanup_phase + 1, phase_names[cleanup_phase], progress, skill_points, stance]
 	hint.text = message
 	hint_panel.visible = playing and not message.is_empty()
 	for i in tool_buttons.size():
