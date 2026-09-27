@@ -124,6 +124,7 @@ var fallen_asset_paths := [
 ]
 var current_walkable_rects: Array[Rect2] = []
 var blocked_spawn_rects: Array[Rect2] = []
+var movement_keys := {KEY_W: false, KEY_A: false, KEY_S: false, KEY_D: false}
 
 
 func _ready() -> void:
@@ -1312,10 +1313,10 @@ func _physics_process(delta: float) -> void:
 		blow_forward()
 		blow_cooldown = 0.22
 	var axis := Vector2.ZERO
-	if Input.is_key_pressed(KEY_A): axis.x -= 1.0
-	if Input.is_key_pressed(KEY_D): axis.x += 1.0
-	if Input.is_key_pressed(KEY_W): axis.y -= 1.0
-	if Input.is_key_pressed(KEY_S): axis.y += 1.0
+	if movement_keys[KEY_A]: axis.x -= 1.0
+	if movement_keys[KEY_D]: axis.x += 1.0
+	if movement_keys[KEY_W]: axis.y -= 1.0
+	if movement_keys[KEY_S]: axis.y += 1.0
 	var wants_crouch := Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_C)
 	if wants_crouch != crouching:
 		set_crouching(wants_crouch)
@@ -1446,6 +1447,15 @@ func push_foam_around_player() -> void:
 		if not foam_moving[index]:
 			foam_moving[index] = true
 			moving_indices.append(index)
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and not event.echo:
+		var physical: int = event.physical_keycode
+		var logical: int = event.keycode
+		for key in movement_keys.keys():
+			if physical == key or logical == key:
+				movement_keys[key] = event.pressed
 
 
 func _unhandled_input(event: InputEvent) -> void:
