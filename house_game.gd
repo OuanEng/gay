@@ -358,34 +358,43 @@ func make_ui() -> void:
 	menu_panel.anchor_right = 0.5
 	menu_panel.anchor_top = 0.5
 	menu_panel.anchor_bottom = 0.5
-	menu_panel.offset_left = -275.0
-	menu_panel.offset_right = 275.0
-	menu_panel.offset_top = -175.0
-	menu_panel.offset_bottom = 175.0
+	menu_panel.offset_left = -340.0
+	menu_panel.offset_right = 340.0
+	menu_panel.offset_top = -255.0
+	menu_panel.offset_bottom = 255.0
 	menu_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.04, 0.09, 0.13, 0.94), Color("71acae")))
 	root.add_child(menu_panel)
 	menu = VBoxContainer.new()
-	menu.add_theme_constant_override("separation", 12)
+	menu.add_theme_constant_override("separation", 11)
 	menu.mouse_filter = Control.MOUSE_FILTER_STOP
 	menu_panel.add_child(menu)
+	var eyebrow := Label.new()
+	eyebrow.text = "A LOW-POLY CLEANUP ADVENTURE"
+	eyebrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	eyebrow.add_theme_font_size_override("font_size", 15)
+	eyebrow.add_theme_color_override("font_color", Color("71d4cf"))
+	menu.add_child(eyebrow)
 	var title := Label.new()
-	title.text = "MANSION CLEANUP"
+	title.text = "PEARL & FOAM"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 32)
+	title.add_theme_font_size_override("font_size", 43)
 	title.add_theme_color_override("font_color", Color("fff3cc"))
 	menu.add_child(title)
 	var subtitle := Label.new()
-	subtitle.text = "Restore five rooms in a huge low-poly mansion."
+	subtitle.text = "One lost pearl. Five ruined rooms. A mansion buried in foam."
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	subtitle.add_theme_font_size_override("font_size", 17)
+	subtitle.add_theme_font_size_override("font_size", 18)
 	subtitle.add_theme_color_override("font_color", Color("a8c9c7"))
 	menu.add_child(subtitle)
+	var loop_card := PanelContainer.new()
+	loop_card.add_theme_stylebox_override("panel", ui_panel_style(Color(0.07, 0.14, 0.18, 0.88), Color(0.3, 0.55, 0.58, 0.5)))
+	menu.add_child(loop_card)
 	var controls := Label.new()
-	controls.text = "1. Clear every foam bead   2. Mop floors and wipe walls\n3. Put fallen objects back in place\nWASD move · Click/E interact · K skill tree · F10 cheats"
+	controls.text = "① CLEAR FOAM     ② CLEAN SURFACES     ③ RESTORE THE ROOM\nEarn coins • Build your skill tree • Unlock better tools"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 16)
 	controls.add_theme_color_override("font_color", Color("c7d8d7"))
-	menu.add_child(controls)
+	loop_card.add_child(controls)
 	var normal_button := Button.new()
 	normal_button.text = "NORMAL     UV light + blower"
 	normal_button.custom_minimum_size.y = 50.0
@@ -395,17 +404,27 @@ func make_ui() -> void:
 	menu.add_child(normal_button)
 	normal_button.visible = false
 	var hard_button := Button.new()
-	hard_button.text = "START CLEANING     Enter the mansion"
-	hard_button.custom_minimum_size.y = 50.0
-	hard_button.add_theme_stylebox_override("normal", ui_panel_style(Color("253d4b")))
-	hard_button.add_theme_stylebox_override("hover", ui_panel_style(Color("365465")))
+	hard_button.text = "START NEW CAREER\nEnter the Grand Foyer"
+	hard_button.custom_minimum_size.y = 64.0
+	hard_button.add_theme_font_size_override("font_size", 18)
+	hard_button.add_theme_stylebox_override("normal", ui_panel_style(Color("23656b"), Color("70d1c8")))
+	hard_button.add_theme_stylebox_override("hover", ui_panel_style(Color("347f83"), Color("fff0b8")))
 	hard_button.pressed.connect(start_new_career)
 	menu.add_child(hard_button)
 	var level_button := Button.new()
-	level_button.text = "SELECT ROOM     Choose any map"
-	level_button.custom_minimum_size.y = 46.0
+	level_button.text = "ROOM SELECT\nPractice any restored map"
+	level_button.custom_minimum_size.y = 58.0
+	level_button.add_theme_font_size_override("font_size", 17)
+	level_button.add_theme_stylebox_override("normal", ui_panel_style(Color("1b3444"), Color("657f98")))
+	level_button.add_theme_stylebox_override("hover", ui_panel_style(Color("294d60"), Color("8db7d1")))
 	level_button.pressed.connect(open_level_select)
 	menu.add_child(level_button)
+	var footer := Label.new()
+	footer.text = "WASD MOVE   •   CLICK / E INTERACT   •   K SKILLS   •   F10 CHEATS"
+	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	footer.add_theme_font_size_override("font_size", 14)
+	footer.add_theme_color_override("font_color", Color("819ba3"))
+	menu.add_child(footer)
 	make_shop_ui(root)
 	make_skill_tree_ui(root)
 	make_pause_ui(root)
@@ -1122,10 +1141,23 @@ func build_foyer_map() -> void:
 	add_stage_wall(Vector3(1.65, 0.42, -1.7), Vector3(0.5, 0.84, 0.5), Color("e4c77b"), true)
 	place_room_asset(room_asset_paths[0][1], Vector3(-2.0, 0.055, 1.25), PI * 0.5, 0.85)
 	place_room_asset(room_asset_paths[0][2], Vector3(1.65, 0.055, 0.75), -PI * 0.7, 0.9)
-	place_room_asset("res://assets/kenney_building/door-rotate-round-a.glb", Vector3(0, 0.05, -2.9), 0, 1.1)
+	build_foyer_door()
 	reserve_spawn_area(Vector2(-2.0, 1.25), Vector2(1.2, 1.2))
 	reserve_spawn_area(Vector2(1.65, 0.75), Vector2(1.4, 1.4))
 	reserve_spawn_area(Vector2(0, -2.4), Vector2(2.0, 1.0))
+
+
+func build_foyer_door() -> void:
+	# Custom double door sized to the foyer instead of the oversized kit doorway.
+	var door_z := -2.88
+	add_stage_wall(Vector3(-0.39, 1.18, door_z), Vector3(0.72, 2.32, 0.16), Color("72462f"), true)
+	add_stage_wall(Vector3(0.39, 1.18, door_z), Vector3(0.72, 2.32, 0.16), Color("64402d"), true)
+	add_stage_wall(Vector3(-0.86, 1.30, door_z + 0.01), Vector3(0.13, 2.75, 0.24), Color("e0b969"))
+	add_stage_wall(Vector3(0.86, 1.30, door_z + 0.01), Vector3(0.13, 2.75, 0.24), Color("e0b969"))
+	add_stage_wall(Vector3(0.0, 2.64, door_z + 0.01), Vector3(1.85, 0.16, 0.24), Color("e0b969"))
+	add_stage_wall(Vector3(0.0, 1.18, door_z + 0.10), Vector3(0.06, 2.15, 0.05), Color("d8a756"))
+	add_stage_wall(Vector3(-0.17, 1.12, door_z + 0.13), Vector3(0.10, 0.22, 0.08), Color("f4d676"))
+	add_stage_wall(Vector3(0.17, 1.12, door_z + 0.13), Vector3(0.10, 0.22, 0.08), Color("f4d676"))
 
 
 func build_guest_suite_map() -> void:
