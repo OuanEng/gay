@@ -122,6 +122,8 @@ var fallen_asset_paths := [
 	"res://assets/kenney_food/plate-dinner.glb", "res://assets/kenney_furniture/books.glb",
 	"res://assets/kenney_furniture/cardboardBoxOpen.glb"
 ]
+var current_walkable_rects: Array[Rect2] = []
+var blocked_spawn_rects: Array[Rect2] = []
 
 
 func _ready() -> void:
@@ -211,27 +213,8 @@ func make_house() -> void:
 	room_light.omni_range = 19.0
 	add_child(room_light)
 	var grass := make_material(Color("6aa987"))
-	var floor_mat := make_material(Color("d6a875"))
-	var wall_mat := make_material(Color("f6e9ce"))
-	var trim_mat := make_material(Color("277f91"))
 	box("Yard", Vector3(0.0, -0.22, 7.0), Vector3(38.0, 0.4, 32.0), grass)
-	box("House floor", Vector3(0.0, -0.04, -1.0), Vector3(18.0, 0.14, 16.0), floor_mat)
-	box("Back wall", Vector3(0.0, 2.1, -9.0), Vector3(18.0, 4.2, 0.22), wall_mat)
-	box("Left wall", Vector3(-9.0, 2.1, -1.0), Vector3(0.22, 4.2, 16.0), wall_mat)
-	box("Right wall", Vector3(9.0, 2.1, -1.0), Vector3(0.22, 4.2, 16.0), wall_mat)
-	# The front wall leaves a walkable doorway in its center.
-	box("Front wall left", Vector3(-5.1, 2.1, 7.0), Vector3(7.8, 4.2, 0.22), wall_mat)
-	box("Front wall right", Vector3(5.1, 2.1, 7.0), Vector3(7.8, 4.2, 0.22), wall_mat)
-	box("Door lintel", Vector3(0.0, 3.4, 7.0), Vector3(2.4, 1.6, 0.22), wall_mat)
-	box("Door frame left", Vector3(-1.24, 1.3, 7.12), Vector3(0.15, 2.6, 0.2), trim_mat, false)
-	box("Door frame right", Vector3(1.24, 1.3, 7.12), Vector3(0.15, 2.6, 0.2), trim_mat, false)
-	box("Door frame top", Vector3(0.0, 2.65, 7.12), Vector3(2.6, 0.15, 0.2), trim_mat, false)
-	box("Ceiling", Vector3(0.0, 4.25, -1.0), Vector3(18.0, 0.18, 16.0), wall_mat)
 	box("Welcome path", Vector3(0.0, 0.005, 10.0), Vector3(2.5, 0.03, 6.0), make_material(Color("f1c5a0")), false)
-	# Simple furniture gives the search room recognizable landmarks.
-	box("Sofa", Vector3(-7.0, 0.55, -6.8), Vector3(2.5, 1.0, 0.9), make_material(Color("558eaa")))
-	box("Table", Vector3(6.8, 0.75, -6.2), Vector3(2.0, 0.2, 1.3), trim_mat)
-	box("Shelf", Vector3(8.2, 1.0, 2.0), Vector3(0.8, 2.0, 2.6), trim_mat)
 	make_light_switch()
 	foam_root = Node3D.new()
 	foam_root.name = "FoamAndPearls"
@@ -862,54 +845,160 @@ func apply_level_theme() -> void:
 
 func random_room_spot(rng: RandomNumberGenerator) -> Vector2:
 	var bounds := level_bounds()
-	for attempt in 20:
+	for attempt in 80:
 		var x := rng.randf_range(bounds.x, bounds.y)
 		var z := rng.randf_range(bounds.z, bounds.w)
-		var inside_sofa := x < -5.5 and z < -6.15
-		var inside_shelf := x > 7.6 and z > 0.45 and z < 3.55
-		if not inside_sofa and not inside_shelf:
+		for rect in current_walkable_rects:
+			if rect.has_point(Vector2(x, z)) and not point_is_spawn_blocked(Vector2(x, z)):
+				return Vector2(x, z)
+		if current_walkable_rects.is_empty():
 			return Vector2(x, z)
 	return Vector2.ZERO
 
 
+func point_is_spawn_blocked(point: Vector2) -> bool:
+	for rect in blocked_spawn_rects:
+		if rect.has_point(point):
+			return true
+	return false
+
+
+func reserve_spawn_area(center: Vector2, size: Vector2) -> void:
+	blocked_spawn_rects.append(Rect2(center - size * 0.5, size))
+
+
 func level_bounds() -> Vector4:
-	var sizes := [2.4, 3.4, 4.6, 6.0, 8.0]
-	var size: float = sizes[current_level - 1]
-	return Vector4(-size, size, -size, minf(size, 6.4))
+	var bounds := [
+		Vector4(-2.8, 2.8, -3.0, 2.5), Vector4(-4.3, 4.3, -4.0, 3.5),
+		Vector4(-5.8, 5.8, -5.0, 4.8), Vector4(-7.0, 7.0, -6.0, 5.8),
+		Vector4(-8.5, 8.5, -7.0, 6.4)
+	]
+	return bounds[current_level - 1]
 
 
 func build_level_layout() -> void:
 	for child in stage_root.get_children():
 		child.queue_free()
+	current_walkable_rects.clear()
+	blocked_spawn_rects.clear()
+	match current_level:
+		1: build_foyer_map()
+		2: build_guest_suite_map()
+		3: build_dining_map()
+		4: build_library_map()
+		_: build_ballroom_map()
 	var bounds := level_bounds()
-	var width := bounds.y - bounds.x
-	var depth := bounds.w - bounds.z
-	var accent_colors := [Color("d8a86d"), Color("78aab4"), Color("b184aa"), Color("79a778")]
-	var accent: Color = accent_colors[(current_level - 1) % accent_colors.size()]
+	light_switch.position = Vector3(bounds.y - 0.14, 1.35, bounds.w - 0.8)
+	light_switch.rotation.y = -PI * 0.5
+
+
+func add_floor_section(rect: Rect2, color: Color) -> void:
+	current_walkable_rects.append(rect.grow(-0.28))
 	var floor_mesh := BoxMesh.new()
-	floor_mesh.size = Vector3(width + 0.35, 0.018, depth + 0.35)
+	floor_mesh.size = Vector3(rect.size.x, 0.018, rect.size.y)
 	var floor_visual := MeshInstance3D.new()
 	floor_visual.mesh = floor_mesh
-	# Keep the decorative level floor slightly above the house floor to prevent z-fighting.
-	floor_visual.position = Vector3(0.0, 0.039, (bounds.z + bounds.w) * 0.5)
-	floor_visual.material_override = make_material(accent.darkened(0.28))
+	floor_visual.position = Vector3(rect.position.x + rect.size.x * 0.5, 0.039, rect.position.y + rect.size.y * 0.5)
+	floor_visual.material_override = make_material(color)
 	stage_root.add_child(floor_visual)
-	add_stage_wall(Vector3(bounds.x, 0.55, (bounds.z + bounds.w) * 0.5), Vector3(0.16, 1.1, depth), accent)
-	add_stage_wall(Vector3(bounds.y, 0.55, (bounds.z + bounds.w) * 0.5), Vector3(0.16, 1.1, depth), accent)
-	add_stage_wall(Vector3(0.0, 0.55, bounds.z), Vector3(width, 1.1, 0.16), accent)
-	# Each restored room has its own low-poly furniture set and grows with the mansion.
-	var paths: Array = room_asset_paths[current_level - 1]
-	var furniture := 4 + current_level * 2
-	for i in furniture:
-		var side := -1.0 if i % 2 == 0 else 1.0
-		var x := side * (width * 0.34)
-		var z := lerpf(bounds.z + 0.9, bounds.w - 0.9, float(i + 1) / float(furniture + 1))
-		var yaw := PI * 0.5 if side < 0.0 else -PI * 0.5
-		place_room_asset(paths[i % paths.size()], Vector3(x, 0.055, z), yaw, 0.82 + 0.08 * float(i % 3))
-	if current_level >= 3:
-		place_room_asset("res://assets/kenney_building/door-rotate-round-a.glb", Vector3(0.0, 0.05, bounds.z + 0.12), 0.0, 1.25)
-	if current_level == 5:
-		place_room_asset("res://assets/kenney_building/stairs-center-short.glb", Vector3(0.0, 0.05, bounds.z + 1.4), 0.0, 1.45)
+	var floor_body := StaticBody3D.new()
+	floor_body.position = Vector3(rect.position.x + rect.size.x * 0.5, -0.035, rect.position.y + rect.size.y * 0.5)
+	var floor_shape := BoxShape3D.new()
+	floor_shape.size = Vector3(rect.size.x, 0.12, rect.size.y)
+	var floor_collider := CollisionShape3D.new()
+	floor_collider.shape = floor_shape
+	floor_body.add_child(floor_collider)
+	stage_root.add_child(floor_body)
+
+
+func build_room_shell(bounds: Vector4, color: Color, back_opening: float = 0.0) -> void:
+	var width := bounds.y - bounds.x
+	var depth := bounds.w - bounds.z
+	add_stage_wall(Vector3(bounds.x, 1.7, (bounds.z + bounds.w) * 0.5), Vector3(0.18, 3.4, depth), color, true)
+	add_stage_wall(Vector3(bounds.y, 1.7, (bounds.z + bounds.w) * 0.5), Vector3(0.18, 3.4, depth), color, true)
+	if back_opening <= 0.0:
+		add_stage_wall(Vector3(0.0, 1.7, bounds.z), Vector3(width, 3.4, 0.18), color, true)
+	else:
+		var side_width := (width - back_opening) * 0.5
+		add_stage_wall(Vector3(bounds.x + side_width * 0.5, 1.7, bounds.z), Vector3(side_width, 3.4, 0.18), color, true)
+		add_stage_wall(Vector3(bounds.y - side_width * 0.5, 1.7, bounds.z), Vector3(side_width, 3.4, 0.18), color, true)
+
+
+func build_foyer_map() -> void:
+	var b := level_bounds()
+	add_floor_section(Rect2(-2.8, -3.0, 5.6, 5.5), Color("8a5e3b"))
+	build_room_shell(b, Color("d5a85c"), 1.8)
+	add_stage_wall(Vector3(-1.65, 0.42, -1.7), Vector3(0.5, 0.84, 0.5), Color("e4c77b"), true)
+	add_stage_wall(Vector3(1.65, 0.42, -1.7), Vector3(0.5, 0.84, 0.5), Color("e4c77b"), true)
+	place_room_asset(room_asset_paths[0][1], Vector3(-2.0, 0.055, 1.25), PI * 0.5, 0.85)
+	place_room_asset(room_asset_paths[0][2], Vector3(1.65, 0.055, 0.75), -PI * 0.7, 0.9)
+	place_room_asset("res://assets/kenney_building/door-rotate-round-a.glb", Vector3(0, 0.05, -2.9), 0, 1.1)
+	reserve_spawn_area(Vector2(-2.0, 1.25), Vector2(1.2, 1.2))
+	reserve_spawn_area(Vector2(1.65, 0.75), Vector2(1.4, 1.4))
+	reserve_spawn_area(Vector2(0, -2.4), Vector2(2.0, 1.0))
+
+
+func build_guest_suite_map() -> void:
+	var b := level_bounds()
+	add_floor_section(Rect2(-4.3, -4.0, 8.6, 5.3), Color("497f88"))
+	add_floor_section(Rect2(-1.8, 1.3, 6.1, 2.2), Color("5f9298"))
+	build_room_shell(b, Color("72b0b7"), 1.5)
+	add_stage_wall(Vector3(-1.8, 0.7, 2.35), Vector3(0.18, 1.4, 2.3), Color("72b0b7"), true)
+	place_room_asset(room_asset_paths[1][0], Vector3(-2.35, 0.055, -2.25), PI * 0.5, 1.05)
+	place_room_asset(room_asset_paths[1][1], Vector3(2.65, 0.055, -1.8), -PI * 0.5, 0.95)
+	place_room_asset(room_asset_paths[1][2], Vector3(1.6, 0.055, 2.55), PI, 0.9)
+	place_room_asset(room_asset_paths[1][3], Vector3(0.0, 0.05, -0.3), 0, 1.4)
+	reserve_spawn_area(Vector2(-2.35, -2.25), Vector2(2.5, 2.2))
+	reserve_spawn_area(Vector2(2.65, -1.8), Vector2(1.8, 1.4))
+	reserve_spawn_area(Vector2(0, -0.3), Vector2(2.4, 1.8))
+
+
+func build_dining_map() -> void:
+	var b := level_bounds()
+	add_floor_section(Rect2(-5.8, -5.0, 11.6, 9.8), Color("78464f"))
+	build_room_shell(b, Color("b06a72"), 2.4)
+	for x in [-4.7, 4.7]:
+		place_room_asset("res://assets/kenney_building/column-wide.glb", Vector3(x, 0.05, -3.7), 0, 1.1)
+	for z in [-2.5, 0.0, 2.5]:
+		place_room_asset(room_asset_paths[2][0], Vector3(0.0, 0.055, z), 0, 1.0)
+		place_room_asset(room_asset_paths[2][1], Vector3(-2.0, 0.055, z), PI * 0.5, 0.9)
+		place_room_asset(room_asset_paths[2][1], Vector3(2.0, 0.055, z), -PI * 0.5, 0.9)
+	place_room_asset(room_asset_paths[2][2], Vector3(0, 0.83, 0), 0, 0.75)
+	reserve_spawn_area(Vector2(0, 0), Vector2(5.0, 7.8))
+
+
+func build_library_map() -> void:
+	var b := level_bounds()
+	add_floor_section(Rect2(-7.0, -6.0, 14.0, 8.0), Color("3e674f"))
+	add_floor_section(Rect2(-4.8, 2.0, 9.6, 3.8), Color("52795f"))
+	build_room_shell(b, Color("73946d"), 1.8)
+	add_stage_wall(Vector3(0, 0.7, 2.0), Vector3(4.0, 1.4, 0.16), Color("73946d"), true)
+	for x in [-5.9, -3.0, 3.0, 5.9]:
+		place_room_asset(room_asset_paths[3][0], Vector3(x, 0.055, -5.35), 0, 1.0)
+	place_room_asset(room_asset_paths[3][3], Vector3(0, 0.055, 3.8), PI, 1.05)
+	place_room_asset(room_asset_paths[3][2], Vector3(-2.4, 0.75, 3.55), 0, 0.85)
+	reserve_spawn_area(Vector2(0, -5.25), Vector2(13.0, 1.3))
+	reserve_spawn_area(Vector2(0, 3.8), Vector2(3.4, 1.8))
+
+
+func build_ballroom_map() -> void:
+	var b := level_bounds()
+	add_floor_section(Rect2(-8.5, -5.2, 17.0, 10.0), Color("665080"))
+	add_floor_section(Rect2(-6.7, -7.0, 13.4, 1.8), Color("4e3c67"))
+	add_floor_section(Rect2(-6.7, 4.8, 13.4, 1.6), Color("806394"))
+	build_room_shell(b, Color("a17bb0"), 3.0)
+	for x in [-7.2, -4.8, 4.8, 7.2]:
+		place_room_asset(room_asset_paths[4][0], Vector3(x, 0.055, -4.3), 0, 1.2)
+	for x in [-5.7, 0.0, 5.7]:
+		place_room_asset(room_asset_paths[4][1], Vector3(x, 0.055, 1.8), 0, 1.0)
+	place_room_asset("res://assets/kenney_building/stairs-center-short.glb", Vector3(0, 0.05, -5.8), 0, 1.65)
+	place_room_asset(room_asset_paths[4][2], Vector3(-6.6, 0.055, 4.0), PI * 0.5, 1.05)
+	place_room_asset(room_asset_paths[4][2], Vector3(6.6, 0.055, 4.0), -PI * 0.5, 1.05)
+	reserve_spawn_area(Vector2(0, -5.6), Vector2(14.0, 2.2))
+	reserve_spawn_area(Vector2(-6.6, 4.0), Vector2(2.0, 1.6))
+	reserve_spawn_area(Vector2(6.6, 4.0), Vector2(2.0, 1.6))
+	for x in [-5.7, 0.0, 5.7]:
+		reserve_spawn_area(Vector2(x, 1.8), Vector2(1.8, 1.8))
 
 
 func place_room_asset(path: String, position: Vector3, yaw: float = 0.0, uniform_scale: float = 1.0, parent: Node3D = stage_root) -> Node3D:
@@ -926,7 +1015,7 @@ func place_room_asset(path: String, position: Vector3, yaw: float = 0.0, uniform
 	return model
 
 
-func add_stage_wall(position: Vector3, size: Vector3, color: Color) -> void:
+func add_stage_wall(position: Vector3, size: Vector3, color: Color, with_collision: bool = false) -> void:
 	var mesh := BoxMesh.new()
 	mesh.size = size
 	var visual := MeshInstance3D.new()
@@ -934,23 +1023,36 @@ func add_stage_wall(position: Vector3, size: Vector3, color: Color) -> void:
 	visual.position = position
 	visual.material_override = make_material(color)
 	stage_root.add_child(visual)
+	if with_collision:
+		var body := StaticBody3D.new()
+		body.position = position
+		var shape := BoxShape3D.new()
+		shape.size = size
+		var collider := CollisionShape3D.new()
+		collider.shape = shape
+		body.add_child(collider)
+		stage_root.add_child(body)
 
 
 func build_cleanup_tasks(rng: RandomNumberGenerator) -> void:
 	var bounds := level_bounds()
 	for i in room_dirt_counts[current_level - 1]:
 		var on_wall: bool = i % 2 == 1
-		var pos := Vector3(rng.randf_range(bounds.x + 0.7, bounds.y - 0.7), 0.065, rng.randf_range(bounds.z + 0.7, bounds.w - 0.7))
+		var floor_spot := random_room_spot(rng)
+		var pos := Vector3(floor_spot.x, 0.065, floor_spot.y)
 		var size := Vector3(0.72, 0.025, 0.72)
 		if on_wall:
-			pos = Vector3(rng.randf_range(bounds.x + 0.8, bounds.y - 0.8), rng.randf_range(0.7, 2.2), bounds.z + 0.11)
-			size = Vector3(0.72, 0.62, 0.04)
+			var wall_x := bounds.x + 0.11 if i % 4 == 1 else bounds.y - 0.11
+			pos = Vector3(wall_x, rng.randf_range(0.7, 2.2), rng.randf_range(bounds.z + 0.8, bounds.w - 0.8))
+			size = Vector3(0.04, 0.62, 0.72)
 		var dirt := make_cleanup_body("Wall grime" if on_wall else "Floor dirt", pos, size, Color("665044"), 8)
 		dirt_spots.append(dirt)
 	for i in room_item_counts[current_level - 1]:
-		var pos2 := Vector3(rng.randf_range(bounds.x + 0.9, bounds.y - 0.9), 0.20, rng.randf_range(bounds.z + 0.9, bounds.w - 0.9))
+		var item_spot := random_room_spot(rng)
+		var pos2 := Vector3(item_spot.x, 0.20, item_spot.y)
 		var item := make_asset_cleanup_body(pos2, fallen_asset_paths[i % fallen_asset_paths.size()])
-		var target := Vector3(lerpf(bounds.x + 0.8, bounds.y - 0.8, float(i + 1) / float(room_item_counts[current_level - 1] + 1)), 0.20, bounds.z + 0.55)
+		var target_spot := random_room_spot(rng)
+		var target := Vector3(target_spot.x, 0.20, target_spot.y)
 		item.set_meta("target", target)
 		misplaced_items.append(item)
 		var marker_mesh := BoxMesh.new()
