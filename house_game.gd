@@ -63,6 +63,9 @@ var skill_buttons: Array[Button] = []
 var skill_from_shop := false
 var skill_from_pause := false
 var pause_panel: PanelContainer
+var level_select_panel: PanelContainer
+var cheat_panel: PanelContainer
+var cheat_status: Label
 var game_paused := false
 var selected_tool := 0
 var uv_marker: Label
@@ -378,7 +381,7 @@ func make_ui() -> void:
 	subtitle.add_theme_color_override("font_color", Color("a8c9c7"))
 	menu.add_child(subtitle)
 	var controls := Label.new()
-	controls.text = "1. Clear every foam bead   2. Mop floors and wipe walls\n3. Put fallen objects back in place\nWASD move · Click/E interact · Ctrl/C crouch · K skill tree"
+	controls.text = "1. Clear every foam bead   2. Mop floors and wipe walls\n3. Put fallen objects back in place\nWASD move · Click/E interact · K skill tree · F10 cheats"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 16)
 	controls.add_theme_color_override("font_color", Color("c7d8d7"))
@@ -398,9 +401,16 @@ func make_ui() -> void:
 	hard_button.add_theme_stylebox_override("hover", ui_panel_style(Color("365465")))
 	hard_button.pressed.connect(start_new_career)
 	menu.add_child(hard_button)
+	var level_button := Button.new()
+	level_button.text = "SELECT ROOM     Choose any map"
+	level_button.custom_minimum_size.y = 46.0
+	level_button.pressed.connect(open_level_select)
+	menu.add_child(level_button)
 	make_shop_ui(root)
 	make_skill_tree_ui(root)
 	make_pause_ui(root)
+	make_level_select_ui(root)
+	make_cheat_ui(root)
 	tools_bar = HBoxContainer.new()
 	tools_bar.anchor_left = 0.5
 	tools_bar.anchor_right = 0.5
@@ -548,12 +558,81 @@ func make_pause_ui(root: Control) -> void:
 	shop_button(column, "RETURN TO MAIN MENU", return_to_menu_from_pause)
 	var controls := Label.new()
 	controls.name = "PauseControls"
-	controls.text = "WASD Move  ·  Mouse Look  ·  Click/E Interact\nCtrl/C Crouch  ·  K Skill Tree  ·  1–3 Tools"
+	controls.text = "WASD Move  ·  Mouse Look  ·  Click/E Interact\nCtrl/C Crouch  ·  K Skill Tree  ·  F10 Cheats  ·  1–3 Tools"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_color_override("font_color", Color("9fc1c5"))
 	controls.visible = false
 	column.add_child(controls)
 	pause_panel.visible = false
+
+
+func make_level_select_ui(root: Control) -> void:
+	level_select_panel = PanelContainer.new()
+	level_select_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	level_select_panel.offset_left = -300.0
+	level_select_panel.offset_right = 300.0
+	level_select_panel.offset_top = -255.0
+	level_select_panel.offset_bottom = 255.0
+	level_select_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.04, 0.08, 0.12, 0.98), Color("d6b86c")))
+	level_select_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(level_select_panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 9)
+	level_select_panel.add_child(column)
+	var title := Label.new()
+	title.text = "SELECT A MANSION ROOM"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 29)
+	title.add_theme_color_override("font_color", Color("fff0bd"))
+	column.add_child(title)
+	for i in cleanup_room_names.size():
+		var description: String = ["Compact entrance hall", "L-shaped bedroom suite", "Long banquet room", "Split-level reading hall", "Huge ballroom with stage"][i]
+		shop_button(column, "%d  %s\n%s" % [i + 1, cleanup_room_names[i], description], start_selected_level.bind(i + 1))
+	shop_button(column, "BACK", close_level_select)
+	level_select_panel.visible = false
+
+
+func make_cheat_ui(root: Control) -> void:
+	cheat_panel = PanelContainer.new()
+	cheat_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	cheat_panel.offset_left = -330.0
+	cheat_panel.offset_right = 330.0
+	cheat_panel.offset_top = -275.0
+	cheat_panel.offset_bottom = 275.0
+	cheat_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.06, 0.035, 0.09, 0.98), Color("d36cff")))
+	cheat_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	root.add_child(cheat_panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 8)
+	cheat_panel.add_child(column)
+	var title := Label.new()
+	title.text = "F10  DEVELOPER CHEATS"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 29)
+	title.add_theme_color_override("font_color", Color("f2d5ff"))
+	column.add_child(title)
+	cheat_status = Label.new()
+	cheat_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(cheat_status)
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 8)
+	grid.add_theme_constant_override("v_separation", 8)
+	column.add_child(grid)
+	shop_button(grid, "+1,000 COINS", cheat_add_money)
+	shop_button(grid, "+10 SKILL POINTS", cheat_add_skill_points)
+	shop_button(grid, "UNLOCK TOOLS", cheat_unlock_tools)
+	shop_button(grid, "MAX ALL SKILLS", cheat_max_skills)
+	shop_button(grid, "CLEAR FOAM PHASE", cheat_clear_foam)
+	shop_button(grid, "TOGGLE PEARL XRAY", cheat_toggle_vision)
+	var rooms := HBoxContainer.new()
+	rooms.add_theme_constant_override("separation", 5)
+	column.add_child(rooms)
+	for i in 5:
+		var room_button := shop_button(rooms, "ROOM %d" % (i + 1), cheat_go_to_level.bind(i + 1))
+		room_button.custom_minimum_size = Vector2(116.0, 42.0)
+	shop_button(column, "CLOSE CHEATS     [F10]", close_cheat_menu)
+	cheat_panel.visible = false
 
 
 func shop_button(parent: Control, text_value: String, callback: Callable) -> Button:
@@ -629,6 +708,106 @@ func show_pause_controls() -> void:
 		controls.visible = not controls.visible
 
 
+func open_level_select() -> void:
+	menu_panel.visible = false
+	level_select_panel.visible = true
+
+
+func close_level_select() -> void:
+	level_select_panel.visible = false
+	menu_panel.visible = true
+
+
+func start_selected_level(level: int) -> void:
+	reset_career_progress(level)
+	start_round("career")
+
+
+func open_cheat_menu() -> void:
+	if not playing:
+		return
+	game_paused = true
+	mouse_captured = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	cheat_panel.visible = true
+	tools_bar.visible = false
+	crosshair.visible = false
+	update_cheat_status()
+
+
+func close_cheat_menu() -> void:
+	cheat_panel.visible = false
+	game_paused = false
+	tools_bar.visible = true
+	crosshair.visible = true
+	capture_mouse()
+	update_ui()
+
+
+func update_cheat_status() -> void:
+	if cheat_status != null:
+		cheat_status.text = "ROOM %d/5     COINS %d     SP %d     XRAY %s" % [current_level, coins, skill_points, "ON" if secret_vision else "OFF"]
+
+
+func cheat_add_money() -> void:
+	coins += 1000
+	update_cheat_status()
+	update_ui()
+
+
+func cheat_add_skill_points() -> void:
+	skill_points += 10
+	update_cheat_status()
+	update_skill_tree()
+
+
+func cheat_unlock_tools() -> void:
+	owns_uv = true
+	owns_blower = true
+	uv_level = 2
+	blower_level = 2
+	tool_buttons[1].visible = true
+	tool_buttons[2].visible = true
+	update_cheat_status()
+
+
+func cheat_max_skills() -> void:
+	hand_skill = 3
+	blower_skill = 3
+	mop_skill = 3
+	organize_skill = 3
+	mobility_skill = 3
+	cheat_unlock_tools()
+	update_skill_tree()
+
+
+func cheat_clear_foam() -> void:
+	if cleanup_phase != 0:
+		message = "Foam phase is already complete."
+		return
+	for i in foam_alive.size():
+		if foam_alive[i]:
+			foam_alive[i] = false
+			update_foam_transform(i)
+	removed_foam = current_foam_count
+	foam_stack_columns.clear()
+	advance_cleanup_phase()
+	update_cheat_status()
+
+
+func cheat_toggle_vision() -> void:
+	secret_vision = not secret_vision
+	update_uv_hint()
+	update_cheat_status()
+
+
+func cheat_go_to_level(level: int) -> void:
+	current_level = clampi(level, 1, 5)
+	cheat_panel.visible = false
+	game_paused = false
+	start_round("career")
+
+
 func upgrade_skill(branch: int) -> void:
 	if skill_points <= 0:
 		message = "No skill points. Restore another room to earn more."
@@ -702,6 +881,8 @@ func show_modes() -> void:
 	shop_panel.visible = false
 	skill_panel.visible = false
 	pause_panel.visible = false
+	level_select_panel.visible = false
+	cheat_panel.visible = false
 	message = ""
 	mouse_captured = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -709,9 +890,17 @@ func show_modes() -> void:
 
 
 func start_new_career() -> void:
+	reset_career_progress(1)
+	start_round("career")
+
+
+func reset_career_progress(start_level: int) -> void:
 	coins = 0
-	current_level = 1
+	for i in range(start_level - 1):
+		coins += level_values[i]
+	current_level = clampi(start_level, 1, 5)
 	skill_points = 2
+	skill_points += (current_level - 1) * 2
 	hand_skill = 0
 	blower_skill = 0
 	mop_skill = 0
@@ -723,7 +912,6 @@ func start_new_career() -> void:
 	owns_blower = false
 	uv_level = 0
 	blower_level = 0
-	start_round("career")
 
 
 func start_round(chosen_mode: String) -> void:
@@ -754,6 +942,7 @@ func start_round(chosen_mode: String) -> void:
 	mode = chosen_mode
 	game_paused = false
 	pause_panel.visible = false
+	cheat_panel.visible = false
 	pearl_sold = false
 	current_foam_count = cleanup_foam_counts[current_level - 1]
 	found = 0
@@ -1466,12 +1655,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				open_skill_tree(shop_panel.visible, game_paused)
 		elif event.keycode == KEY_F10 and playing:
-			secret_vision = not secret_vision
-			update_uv_hint()
+			if cheat_panel.visible:
+				close_cheat_menu()
+			else:
+				open_cheat_menu()
 		elif event.keycode == KEY_M:
 			show_modes()
 		elif event.keycode == KEY_R and mode != "":
 			start_round(mode)
+		elif event.keycode == KEY_ESCAPE and cheat_panel.visible:
+			close_cheat_menu()
+		elif event.keycode == KEY_ESCAPE and level_select_panel.visible:
+			close_level_select()
 		elif event.keycode == KEY_ESCAPE and skill_panel.visible:
 			close_skill_tree()
 		elif event.keycode == KEY_ESCAPE and game_paused:
