@@ -109,6 +109,19 @@ var room_item_counts := [2, 3, 4, 5, 7]
 var cleanup_room_names := ["GRAND FOYER", "GUEST ROOM", "DINING HALL", "LIBRARY", "BALLROOM"]
 var cleanup_foam_counts := [40, 120, 300, 700, 1500]
 var phase_names := ["CLEAR FOAM", "CLEAN SURFACES", "ORGANIZE ROOM"]
+var skill_coin_costs := [0, 40, 90]
+var room_asset_paths := [
+	["res://assets/kenney_building/column-wide.glb", "res://assets/kenney_furniture/pottedPlant.glb", "res://assets/kaykit_furniture/armchair.gltf", "res://assets/kenney_furniture/loungeSofa.glb"],
+	["res://assets/kenney_furniture/bedDouble.glb", "res://assets/kenney_furniture/desk.glb", "res://assets/kaykit_furniture/lamp_table.gltf", "res://assets/kenney_furniture/rugRectangle.glb"],
+	["res://assets/kenney_furniture/tableCloth.glb", "res://assets/kenney_furniture/chairCushion.glb", "res://assets/kenney_food/cake-birthday.glb", "res://assets/kenney_food/cup-tea.glb"],
+	["res://assets/kenney_furniture/bookcaseOpen.glb", "res://assets/kenney_furniture/books.glb", "res://assets/kaykit_furniture/book_set.gltf", "res://assets/kenney_furniture/desk.glb"],
+	["res://assets/kenney_building/column.glb", "res://assets/kenney_furniture/tableRound.glb", "res://assets/kenney_furniture/loungeSofa.glb", "res://assets/kenney_food/wine-red.glb"]
+]
+var fallen_asset_paths := [
+	"res://assets/kenney_food/apple.glb", "res://assets/kenney_food/bread.glb",
+	"res://assets/kenney_food/plate-dinner.glb", "res://assets/kenney_furniture/books.glb",
+	"res://assets/kenney_furniture/cardboardBoxOpen.glb"
+]
 
 
 func _ready() -> void:
@@ -640,7 +653,13 @@ func upgrade_skill(branch: int) -> void:
 	var level := get_skill_level(branch)
 	if level >= 3:
 		return
+	var coin_cost: int = skill_coin_costs[level]
+	if coins < coin_cost:
+		message = "Need %d coins for this upgrade." % coin_cost
+		update_skill_tree()
+		return
 	skill_points -= 1
+	coins -= coin_cost
 	set_skill_level(branch, level + 1)
 	if branch == 1:
 		owns_blower = true
@@ -667,7 +686,7 @@ func set_skill_level(branch: int, value: int) -> void:
 func update_skill_tree() -> void:
 	if skill_points_label == null:
 		return
-	skill_points_label.text = "SKILL POINTS   %d" % skill_points
+	skill_points_label.text = "SKILL POINTS   %d     COINS   %d" % [skill_points, coins]
 	var names := ["QUICK HANDS", "FOAM BLOWER", "DEEP CLEAN", "ORGANIZER MAGNET", "LIGHT FEET"]
 	var details := [
 		"Pick up more nearby foam per click",
@@ -678,8 +697,9 @@ func update_skill_tree() -> void:
 	]
 	for i in skill_buttons.size():
 		var level := get_skill_level(i)
-		skill_buttons[i].text = "%s   %d/3\n%s" % [names[i], level, details[i]]
-		skill_buttons[i].disabled = level >= 3 or skill_points <= 0
+		var cost_text := "MAX" if level >= 3 else ("FREE" if skill_coin_costs[level] == 0 else "%d COINS" % skill_coin_costs[level])
+		skill_buttons[i].text = "%s   %d/3   •   %s\n%s" % [names[i], level, cost_text, details[i]]
+		skill_buttons[i].disabled = level >= 3 or skill_points <= 0 or (level < 3 and coins < skill_coin_costs[level])
 
 
 func show_modes() -> void:
@@ -877,13 +897,33 @@ func build_level_layout() -> void:
 	add_stage_wall(Vector3(bounds.x, 0.55, (bounds.z + bounds.w) * 0.5), Vector3(0.16, 1.1, depth), accent)
 	add_stage_wall(Vector3(bounds.y, 0.55, (bounds.z + bounds.w) * 0.5), Vector3(0.16, 1.1, depth), accent)
 	add_stage_wall(Vector3(0.0, 0.55, bounds.z), Vector3(width, 1.1, 0.16), accent)
-	# Temporary low-poly furniture. Real assets can replace these mockup blocks later.
-	var furniture := 2 + current_level * 2
+	# Each restored room has its own low-poly furniture set and grows with the mansion.
+	var paths: Array = room_asset_paths[current_level - 1]
+	var furniture := 4 + current_level * 2
 	for i in furniture:
 		var side := -1.0 if i % 2 == 0 else 1.0
-		var x := side * (width * 0.30)
-		var z := lerpf(bounds.z + 0.8, bounds.w - 0.8, float(i + 1) / float(furniture + 1))
-		add_stage_wall(Vector3(x, 0.32, z), Vector3(0.9 + 0.15 * (i % 3), 0.64, 0.55), accent.lightened(0.12))
+		var x := side * (width * 0.34)
+		var z := lerpf(bounds.z + 0.9, bounds.w - 0.9, float(i + 1) / float(furniture + 1))
+		var yaw := PI * 0.5 if side < 0.0 else -PI * 0.5
+		place_room_asset(paths[i % paths.size()], Vector3(x, 0.055, z), yaw, 0.82 + 0.08 * float(i % 3))
+	if current_level >= 3:
+		place_room_asset("res://assets/kenney_building/door-rotate-round-a.glb", Vector3(0.0, 0.05, bounds.z + 0.12), 0.0, 1.25)
+	if current_level == 5:
+		place_room_asset("res://assets/kenney_building/stairs-center-short.glb", Vector3(0.0, 0.05, bounds.z + 1.4), 0.0, 1.45)
+
+
+func place_room_asset(path: String, position: Vector3, yaw: float = 0.0, uniform_scale: float = 1.0, parent: Node3D = stage_root) -> Node3D:
+	var packed := load(path) as PackedScene
+	if packed == null:
+		return null
+	var model := packed.instantiate() as Node3D
+	if model == null:
+		return null
+	model.position = position
+	model.rotation.y = yaw
+	model.scale = Vector3.ONE * uniform_scale
+	parent.add_child(model)
+	return model
 
 
 func add_stage_wall(position: Vector3, size: Vector3, color: Color) -> void:
@@ -909,7 +949,7 @@ func build_cleanup_tasks(rng: RandomNumberGenerator) -> void:
 		dirt_spots.append(dirt)
 	for i in room_item_counts[current_level - 1]:
 		var pos2 := Vector3(rng.randf_range(bounds.x + 0.9, bounds.y - 0.9), 0.20, rng.randf_range(bounds.z + 0.9, bounds.w - 0.9))
-		var item := make_cleanup_body("Fallen object", pos2, Vector3(0.34, 0.34, 0.34), [Color("e17d7d"), Color("76b8c4"), Color("e4bd62")][i % 3], 16)
+		var item := make_asset_cleanup_body(pos2, fallen_asset_paths[i % fallen_asset_paths.size()])
 		var target := Vector3(lerpf(bounds.x + 0.8, bounds.y - 0.8, float(i + 1) / float(room_item_counts[current_level - 1] + 1)), 0.20, bounds.z + 0.55)
 		item.set_meta("target", target)
 		misplaced_items.append(item)
@@ -923,6 +963,15 @@ func build_cleanup_tasks(rng: RandomNumberGenerator) -> void:
 		marker.set_meta("organize_marker", true)
 		stage_root.add_child(marker)
 	set_cleanup_tasks_visible(false, false)
+
+
+func make_asset_cleanup_body(position: Vector3, asset_path: String) -> StaticBody3D:
+	var body := make_cleanup_body("Fallen object", position, Vector3(0.38, 0.34, 0.38), Color(0, 0, 0, 0), 16)
+	var block_visual := body.get_child(0) as MeshInstance3D
+	if block_visual != null:
+		block_visual.visible = false
+	place_room_asset(asset_path, Vector3.ZERO, randf_range(-PI, PI), 0.72, body)
+	return body
 
 
 func make_cleanup_body(body_name: String, position: Vector3, size: Vector3, color: Color, layer: int) -> StaticBody3D:
@@ -1654,7 +1703,7 @@ func update_ui() -> void:
 	elif cleanup_phase == 2:
 		progress = "%d/%d OBJECTS" % [organized_items, room_item_counts[current_level - 1]]
 	var stance := "CROUCH" if crouching else "STAND"
-	hud.text = "ROOM %d/5 · %s    PHASE %d/3 · %s    %s    SP %d    %s" % [current_level, cleanup_room_names[current_level - 1], cleanup_phase + 1, phase_names[cleanup_phase], progress, skill_points, stance]
+	hud.text = "ROOM %d/5 · %s    PHASE %d/3 · %s    %s    $%d · SP %d    %s" % [current_level, cleanup_room_names[current_level - 1], cleanup_phase + 1, phase_names[cleanup_phase], progress, coins, skill_points, stance]
 	hint.text = message
 	hint_panel.visible = playing and not message.is_empty()
 	for i in tool_buttons.size():
