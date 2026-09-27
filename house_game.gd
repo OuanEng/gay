@@ -2,7 +2,7 @@ extends Node3D
 
 const PEARL_COUNT := 1
 const MAX_FOAM_COUNT := 100000
-const FOAM_RADIUS := 0.042
+const FOAM_RADIUS := 0.055
 const FOAM_DIAMETER := FOAM_RADIUS * 2.0
 const FOAM_BASE_Y := 0.09
 const FOAM_CELL_SIZE := 0.55
@@ -110,7 +110,7 @@ var organized_items := 0
 var room_dirt_counts := [2, 3, 4, 5, 7]
 var room_item_counts := [2, 3, 4, 5, 7]
 var cleanup_room_names := ["GRAND FOYER", "GUEST ROOM", "DINING HALL", "LIBRARY", "BALLROOM"]
-var cleanup_foam_counts := [40, 120, 300, 700, 1500]
+var cleanup_foam_counts := [3600, 6500, 11000, 17000, 25000]
 var phase_names := ["CLEAR FOAM", "CLEAN SURFACES", "ORGANIZE ROOM"]
 var skill_coin_costs := [0, 40, 90]
 var room_asset_paths := [
@@ -128,6 +128,10 @@ var fallen_asset_paths := [
 var current_walkable_rects: Array[Rect2] = []
 var blocked_spawn_rects: Array[Rect2] = []
 var movement_keys := {KEY_W: false, KEY_A: false, KEY_S: false, KEY_D: false}
+var held_tool_root: Node3D
+var held_tool_body: MeshInstance3D
+var held_tool_nozzle: MeshInstance3D
+var tool_bob_time := 0.0
 
 
 func _ready() -> void:
@@ -161,6 +165,16 @@ func ui_panel_style(background: Color, border: Color = Color.TRANSPARENT) -> Sty
 	style.content_margin_right = 18
 	style.content_margin_top = 12
 	style.content_margin_bottom = 12
+	return style
+
+
+func survival_slot_style(border: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("0b0c12")
+	style.border_color = border
+	style.set_border_width_all(4)
+	style.set_corner_radius_all(3)
+	style.set_content_margin_all(8.0)
 	return style
 
 
@@ -199,21 +213,25 @@ func make_house() -> void:
 	var env_node := WorldEnvironment.new()
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("8ac6d9")
+	env.background_color = Color("090d16")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("e6f1f0")
-	env.ambient_light_energy = 0.28
+	env.ambient_light_color = Color("58627c")
+	env.ambient_light_energy = 0.10
 	env.glow_enabled = true
+	env.fog_enabled = true
+	env.fog_light_color = Color("30384d")
+	env.fog_light_energy = 0.35
+	env.fog_density = 0.018
 	env_node.environment = env
 	add_child(env_node)
 	var sunlight := DirectionalLight3D.new()
 	sunlight.rotation_degrees = Vector3(-55.0, -35.0, 0.0)
-	sunlight.light_energy = 1.2
+	sunlight.light_energy = 0.32
 	sunlight.shadow_enabled = true
 	add_child(sunlight)
 	room_light = OmniLight3D.new()
 	room_light.position = Vector3(0.0, 3.3, -1.0)
-	room_light.light_energy = 4.0
+	room_light.light_energy = 0.85
 	room_light.omni_range = 19.0
 	add_child(room_light)
 	var grass := make_material(Color("6aa987"))
@@ -289,7 +307,72 @@ func make_player() -> void:
 	uv_flashlight.shadow_enabled = false
 	uv_flashlight.visible = false
 	view.add_child(uv_flashlight)
+	make_held_tool()
 	add_child(player)
+
+
+func make_held_tool() -> void:
+	held_tool_root = Node3D.new()
+	held_tool_root.position = Vector3(0.47, -0.42, -0.78)
+	held_tool_root.rotation_degrees = Vector3(-7.0, -8.0, 0.0)
+	held_tool_root.visible = false
+	view.add_child(held_tool_root)
+	var body_mesh := BoxMesh.new()
+	body_mesh.size = Vector3(0.32, 0.25, 0.58)
+	held_tool_body = MeshInstance3D.new()
+	held_tool_body.mesh = body_mesh
+	held_tool_body.material_override = make_material(Color("633c8a"))
+	held_tool_root.add_child(held_tool_body)
+	var nozzle_mesh := CylinderMesh.new()
+	nozzle_mesh.top_radius = 0.10
+	nozzle_mesh.bottom_radius = 0.15
+	nozzle_mesh.height = 0.46
+	nozzle_mesh.radial_segments = 8
+	held_tool_nozzle = MeshInstance3D.new()
+	held_tool_nozzle.mesh = nozzle_mesh
+	held_tool_nozzle.rotation.x = PI * 0.5
+	held_tool_nozzle.position = Vector3(0.0, 0.02, -0.43)
+	held_tool_nozzle.material_override = make_material(Color("252038"))
+	held_tool_root.add_child(held_tool_nozzle)
+	var grip_mesh := BoxMesh.new()
+	grip_mesh.size = Vector3(0.16, 0.34, 0.17)
+	var grip := MeshInstance3D.new()
+	grip.mesh = grip_mesh
+	grip.position = Vector3(0.0, -0.25, 0.08)
+	grip.rotation.x = -0.22
+	grip.material_override = make_material(Color("9b4e68"))
+	held_tool_root.add_child(grip)
+	var arm_mesh := BoxMesh.new()
+	arm_mesh.size = Vector3(0.24, 0.24, 0.72)
+	var arm := MeshInstance3D.new()
+	arm.mesh = arm_mesh
+	arm.position = Vector3(0.18, -0.31, 0.46)
+	arm.rotation_degrees = Vector3(-12.0, 18.0, 4.0)
+	arm.material_override = make_material(Color("8d3349"))
+	held_tool_root.add_child(arm)
+	var hand_mesh := BoxMesh.new()
+	hand_mesh.size = Vector3(0.23, 0.20, 0.28)
+	var hand := MeshInstance3D.new()
+	hand.mesh = hand_mesh
+	hand.position = Vector3(0.05, -0.20, 0.16)
+	hand.rotation.x = -0.18
+	hand.material_override = make_material(Color("c98568"))
+	held_tool_root.add_child(hand)
+	var lens_mesh := CylinderMesh.new()
+	lens_mesh.top_radius = 0.105
+	lens_mesh.bottom_radius = 0.105
+	lens_mesh.height = 0.025
+	lens_mesh.radial_segments = 10
+	var lens := MeshInstance3D.new()
+	lens.mesh = lens_mesh
+	lens.rotation.x = PI * 0.5
+	lens.position = Vector3(0.0, 0.02, -0.67)
+	var lens_material := make_material(Color("52d9ff"))
+	lens_material.emission_enabled = true
+	lens_material.emission = Color("35cfff")
+	lens_material.emission_energy_multiplier = 4.0
+	lens.material_override = lens_material
+	held_tool_root.add_child(lens)
 
 
 func make_ui() -> void:
@@ -299,8 +382,25 @@ func make_ui() -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(root)
+	var survival := HBoxContainer.new()
+	survival.position = Vector2(18.0, 16.0)
+	survival.add_theme_constant_override("separation", 8)
+	survival.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(survival)
+	var heart := Label.new()
+	heart.text = "♥"
+	heart.add_theme_font_size_override("font_size", 25)
+	heart.add_theme_color_override("font_color", Color("e94b55"))
+	survival.add_child(heart)
+	var health := ProgressBar.new()
+	health.custom_minimum_size = Vector2(170.0, 22.0)
+	health.value = 100.0
+	health.show_percentage = false
+	health.add_theme_stylebox_override("background", ui_panel_style(Color("171a24"), Color("05070c")))
+	health.add_theme_stylebox_override("fill", ui_panel_style(Color("bd303d"), Color("ef5a60")))
+	survival.add_child(health)
 	hud_panel = PanelContainer.new()
-	hud_panel.position = Vector2(16.0, 16.0)
+	hud_panel.position = Vector2(16.0, 54.0)
 	hud_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.06, 0.10, 0.14, 0.82), Color(0.37, 0.52, 0.58, 0.45)))
 	hud_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(hud_panel)
@@ -353,6 +453,36 @@ func make_ui() -> void:
 	uv_marker.add_theme_font_size_override("font_size", 38)
 	uv_marker.add_theme_color_override("font_color", Color("d874ff"))
 	root.add_child(uv_marker)
+	var bag_slot := PanelContainer.new()
+	bag_slot.anchor_top = 1.0
+	bag_slot.anchor_bottom = 1.0
+	bag_slot.offset_left = 18.0
+	bag_slot.offset_right = 78.0
+	bag_slot.offset_top = -82.0
+	bag_slot.offset_bottom = -22.0
+	bag_slot.add_theme_stylebox_override("panel", survival_slot_style(Color("d2a95d")))
+	bag_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(bag_slot)
+	var bag_icon := TextureRect.new()
+	bag_icon.texture = load("res://icon_hand.svg")
+	bag_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	bag_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	bag_slot.add_child(bag_icon)
+	var objective_slot := PanelContainer.new()
+	objective_slot.anchor_left = 1.0
+	objective_slot.anchor_right = 1.0
+	objective_slot.offset_left = -78.0
+	objective_slot.offset_right = -18.0
+	objective_slot.offset_top = 18.0
+	objective_slot.offset_bottom = 78.0
+	objective_slot.add_theme_stylebox_override("panel", survival_slot_style(Color("8b7352")))
+	objective_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(objective_slot)
+	var pearl_icon := TextureRect.new()
+	pearl_icon.texture = load("res://icon_uv.svg")
+	pearl_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pearl_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	objective_slot.add_child(pearl_icon)
 	menu_panel = PanelContainer.new()
 	menu_panel.anchor_left = 0.5
 	menu_panel.anchor_right = 0.5
@@ -895,6 +1025,7 @@ func show_modes() -> void:
 	crosshair.visible = false
 	uv_marker.visible = false
 	uv_flashlight.visible = false
+	held_tool_root.visible = false
 	result.text = ""
 	result_panel.visible = false
 	shop_panel.visible = false
@@ -1020,6 +1151,7 @@ func start_round(chosen_mode: String) -> void:
 	build_foam_meshes(group_counts)
 	build_cleanup_tasks(rng)
 	playing = true
+	held_tool_root.visible = true
 	menu_panel.visible = false
 	hud_panel.visible = true
 	tools_bar.visible = true
@@ -1041,15 +1173,15 @@ func start_round(chosen_mode: String) -> void:
 
 func apply_level_theme() -> void:
 	var palettes := [
-		[Color("f8f2dd"), Color("d9edf2"), Color("f4dce5"), Color("e4e2f5"), Color("e2f0d8")],
-		[Color("cfe8e8"), Color("a9d6d2"), Color("f0d0a8"), Color("d8c7ef"), Color("bdd7c1")],
-		[Color("8b91a7"), Color("69788f"), Color("98768b"), Color("667a78"), Color("b08b68")]
+		[Color("e7e5df"), Color("c9cbd2"), Color("e9e6ee"), Color("bfc4d2"), Color("d7d4cf")],
+		[Color("d8dce3"), Color("b8c4ce"), Color("ddd6e5"), Color("c2bdd8"), Color("cbd4d4")],
+		[Color("aeb3c3"), Color("8e98aa"), Color("b7a9bc"), Color("899b9d"), Color("b8aaa0")]
 	]
 	var theme_index := (current_level - 1) % palettes.size()
 	for i in foam_materials.size():
 		foam_materials[i].albedo_color = palettes[theme_index][i]
-	room_light.light_color = [Color("fff1cf"), Color("c9f4ef"), Color("d6c4ff")][theme_index]
-	room_light.light_energy = maxf(1.8, 4.2 - float(current_level - 1) * 0.25)
+	room_light.light_color = [Color("c7d7ff"), Color("b5d8e8"), Color("c7b3ff")][theme_index]
+	room_light.light_energy = maxf(0.55, 0.90 - float(current_level - 1) * 0.06)
 
 
 func random_room_spot(rng: RandomNumberGenerator) -> Vector2:
@@ -1097,8 +1229,51 @@ func build_level_layout() -> void:
 		4: build_library_map()
 		_: build_ballroom_map()
 	var bounds := level_bounds()
+	add_room_clutter(bounds, 7 + current_level * 2)
+	add_room_mood_lights(bounds)
 	light_switch.position = Vector3(bounds.y - 0.14, 1.35, bounds.w - 0.8)
 	light_switch.rotation.y = -PI * 0.5
+
+
+func add_room_clutter(bounds: Vector4, count: int) -> void:
+	var rows := 3
+	for i in count:
+		var row := i % rows
+		var t := float(i / rows + 1) / float(ceili(float(count) / rows) + 1)
+		var x := lerpf(bounds.x + 0.65, bounds.y - 0.65, t)
+		var z := bounds.z + 0.65 + float(row) * 0.55 if i % 2 == 0 else bounds.w - 0.65 - float(row) * 0.48
+		var point := Vector2(x, z)
+		var walkable := false
+		for rect in current_walkable_rects:
+			if rect.has_point(point):
+				walkable = true
+				break
+		if not walkable and not current_walkable_rects.is_empty():
+			var fallback: Rect2 = current_walkable_rects[i % current_walkable_rects.size()]
+			x = fallback.position.x + fallback.size.x * (0.2 + 0.6 * t)
+			z = fallback.position.y + fallback.size.y * (0.22 if i % 2 == 0 else 0.78)
+		var scale_value := 0.62 + float(i % 4) * 0.12
+		place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(x, 0.055, z), float(i) * 0.73, scale_value)
+		reserve_spawn_area(Vector2(x, z), Vector2(0.66, 0.66) * scale_value)
+
+
+func add_room_mood_lights(bounds: Vector4) -> void:
+	var violet := OmniLight3D.new()
+	violet.position = Vector3(bounds.x * 0.45, 0.75, bounds.z * 0.45)
+	violet.light_color = Color("7b3dff")
+	violet.light_energy = 2.2
+	violet.omni_range = 4.8
+	violet.shadow_enabled = false
+	violet.set_meta("room_mood_light", true)
+	stage_root.add_child(violet)
+	var cyan := OmniLight3D.new()
+	cyan.position = Vector3(bounds.y * 0.38, 0.55, bounds.w * 0.25)
+	cyan.light_color = Color("39c9ff")
+	cyan.light_energy = 1.5
+	cyan.omni_range = 3.6
+	cyan.shadow_enabled = false
+	cyan.set_meta("room_mood_light", true)
+	stage_root.add_child(cyan)
 
 
 func add_floor_section(rect: Rect2, color: Color) -> void:
@@ -1141,10 +1316,15 @@ func build_foyer_map() -> void:
 	add_stage_wall(Vector3(1.65, 0.42, -1.7), Vector3(0.5, 0.84, 0.5), Color("e4c77b"), true)
 	place_room_asset(room_asset_paths[0][1], Vector3(-2.0, 0.055, 1.25), PI * 0.5, 0.85)
 	place_room_asset(room_asset_paths[0][2], Vector3(1.65, 0.055, 0.75), -PI * 0.7, 0.9)
+	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(-1.25, 0.055, -1.15), 0.4, 0.9)
+	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(1.15, 0.055, -0.85), -0.7, 1.1)
+	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(2.15, 0.055, 1.55), 1.2, 0.75)
 	build_foyer_door()
 	reserve_spawn_area(Vector2(-2.0, 1.25), Vector2(1.2, 1.2))
 	reserve_spawn_area(Vector2(1.65, 0.75), Vector2(1.4, 1.4))
 	reserve_spawn_area(Vector2(0, -2.4), Vector2(2.0, 1.0))
+	reserve_spawn_area(Vector2(-1.25, -1.15), Vector2(0.9, 0.9))
+	reserve_spawn_area(Vector2(1.15, -0.85), Vector2(1.0, 1.0))
 
 
 func build_foyer_door() -> void:
@@ -1542,6 +1722,9 @@ func _physics_process(delta: float) -> void:
 	if wants_crouch != crouching:
 		set_crouching(wants_crouch)
 	var move_dir := (player.global_basis.x * axis.x + player.global_basis.z * axis.y).normalized()
+	tool_bob_time += delta * (8.0 if axis.length_squared() > 0.0 else 2.0)
+	var bob_amount := 0.018 if axis.length_squared() > 0.0 else 0.005
+	held_tool_root.position = held_tool_root.position.lerp(Vector3(0.47 + cos(tool_bob_time * 0.5) * bob_amount, -0.42 + sin(tool_bob_time) * bob_amount, -0.78), minf(1.0, delta * 10.0))
 	var move_speed := WALK_SPEED * (1.0 + float(mobility_skill) * 0.12)
 	if crouching:
 		move_speed *= 0.68 + float(mobility_skill) * 0.07
@@ -1908,6 +2091,10 @@ func select_tool(index: int) -> void:
 	uv_on = index == 1
 	blower_on = index == 2
 	uv_flashlight.visible = uv_on
+	var tool_colors := [Color("533f5c"), Color("713ba0"), Color("326f85")]
+	var nozzle_colors := [Color("24202e"), Color("33214c"), Color("183c4a")]
+	held_tool_body.material_override = make_material(tool_colors[index])
+	held_tool_nozzle.material_override = make_material(nozzle_colors[index])
 	match index:
 		0: message = "Hand selected: click or press E to remove one foam bead."
 		1: message = "UV selected: the marker points toward the pearl."
@@ -1918,6 +2105,9 @@ func select_tool(index: int) -> void:
 func toggle_room_light() -> void:
 	room_light_on = not room_light_on
 	room_light.visible = room_light_on
+	for child in stage_root.get_children():
+		if child.has_meta("room_mood_light"):
+			child.visible = room_light_on
 	update_light_switch()
 	update_ui()
 
