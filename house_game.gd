@@ -1779,6 +1779,9 @@ func set_cleanup_tasks_visible(show_dirt: bool, show_items: bool) -> void:
 		if is_instance_valid(dirt):
 			dirt.visible = true
 			dirt.collision_layer = 8 if show_dirt else 0
+			var stain_visual := dirt.get_child(0) as MeshInstance3D
+			if stain_visual != null and stain_visual.material_override is ShaderMaterial:
+				stain_visual.material_override.set_shader_parameter("highlight", 1.0 if show_dirt else 0.0)
 	for item in misplaced_items:
 		if is_instance_valid(item):
 			item.visible = true
@@ -1820,6 +1823,7 @@ func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
 		var stain_visual := body.get_child(0) as MeshInstance3D
 		if stain_visual.material_override is ShaderMaterial:
 			stain_visual.material_override.set_shader_parameter("strength", 1.0 - scrub)
+			stain_visual.material_override.set_shader_parameter("highlight", maxf(0.18, 1.0 - scrub))
 		if scrub < 0.99:
 			message = "HOLD LEFT MOUSE · Scrubbing %d%%" % int(scrub * 100)
 			update_ui()
