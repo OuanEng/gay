@@ -1217,43 +1217,65 @@ func point_is_inside_room(point: Vector2, margin: float = FOAM_RADIUS) -> bool:
 	return false
 
 
+func nearest_safe_room_point(point: Vector2, margin: float = FOAM_RADIUS + 0.003) -> Vector2:
+	var nearest := point
+	var best_distance := INF
+	for rect in current_walkable_rects:
+		var safe := rect.grow(-margin)
+		var candidate := Vector2(
+			clampf(point.x, safe.position.x, safe.end.x - 0.001),
+			clampf(point.y, safe.position.y, safe.end.y - 0.001)
+		)
+		var distance := point.distance_squared_to(candidate)
+		if distance < best_distance:
+			best_distance = distance
+			nearest = candidate
+	return nearest
+
+
 func keep_foam_inside_room(previous: Vector3, position: Vector3, velocity: Vector3) -> Dictionary:
 	var point := Vector2(position.x, position.z)
-	if point_is_inside_room(point):
-		return {"position": position, "velocity": velocity}
-	# Use the floor section occupied on the previous frame. This also seals
-	# internal corners in L-shaped rooms instead of clamping to one large box.
-	var active_rect := Rect2()
-	var found_active := false
 	var previous_point := Vector2(previous.x, previous.z)
-	for rect in current_walkable_rects:
-		if rect.grow(FOAM_RADIUS * 0.5).has_point(previous_point):
-			active_rect = rect.grow(-FOAM_RADIUS)
-			found_active = true
+	if not point_is_inside_room(previous_point):
+		# Recover beads left outside by an old save or a previous physics frame.
+		previous_point = nearest_safe_room_point(previous_point)
+		previous.x = previous_point.x
+		previous.z = previous_point.y
+	# Check the whole path, not only the destination. A fast bead could have an
+	# inside endpoint after crossing a thin wall or the empty corner of an L room.
+	var travel := previous_point.distance_to(point)
+	var steps := maxi(1, ceili(travel / (FOAM_RADIUS * 0.5)))
+	var last_safe := previous_point
+	var crossed_wall := false
+	for step in range(1, steps + 1):
+		var sample := previous_point.lerp(point, float(step) / float(steps))
+		if not point_is_inside_room(sample):
+			crossed_wall = true
 			break
-	if not found_active:
-		var best_distance := INF
-		for rect in current_walkable_rects:
-			var safe := rect.grow(-FOAM_RADIUS)
-			var closest := Vector2(
-				clampf(previous_point.x, safe.position.x, safe.end.x),
-				clampf(previous_point.y, safe.position.y, safe.end.y)
-			)
-			var distance := previous_point.distance_squared_to(closest)
-			if distance < best_distance:
-				best_distance = distance
-				active_rect = safe
-				found_active = true
-	if not found_active:
+		last_safe = sample
+	if not crossed_wall:
 		return {"position": position, "velocity": velocity}
-	var corrected := Vector2(
-		clampf(point.x, active_rect.position.x, active_rect.end.x),
-		clampf(point.y, active_rect.position.y, active_rect.end.y)
-	)
-	if not is_equal_approx(corrected.x, point.x):
+	# Resolve one axis at a time so beads slide along a wall instead of gaining
+	# enough energy to tunnel through it on the next frame.
+	var try_x := Vector2(point.x, last_safe.y)
+	var try_z := Vector2(last_safe.x, point.y)
+	var x_is_safe := point_is_inside_room(try_x)
+	var z_is_safe := point_is_inside_room(try_z)
+	var corrected := last_safe
+	if x_is_safe:
+		corrected.x = try_x.x
+	else:
 		velocity.x *= -0.42
-	if not is_equal_approx(corrected.y, point.y):
+	if z_is_safe:
+		corrected.y = try_z.y
+	else:
 		velocity.z *= -0.42
+	# Remove excessive horizontal energy accumulated by repeated player pushes.
+	var horizontal := Vector2(velocity.x, velocity.z)
+	if horizontal.length() > 5.0:
+		horizontal = horizontal.normalized() * 5.0
+		velocity.x = horizontal.x
+		velocity.z = horizontal.y
 	position.x = corrected.x
 	position.z = corrected.y
 	return {"position": position, "velocity": velocity}
@@ -2032,7 +2054,19 @@ func push_foam_around_player() -> void:
 		away.y = 0.0
 		if away.length_squared() < 0.001:
 			away = -view.global_basis.z
-		foam_velocities[index] += away.normalized() * 1.3 + Vector3.UP * 0.7
+		var push_direction := away.normalized()
+		var predicted := foam_positions[index] + push_direction * 0.16
+		if not point_is_inside_room(Vector2(predicted.x, predicted.z)):
+			# Near a wall, redirect the shove sideways/inward instead of building
+			# pressure that can launch the bead through the wall.
+			push_direction = (Vector3.ZERO - foam_positions[index]).normalized()
+			push_direction.y = 0.0
+		foam_velocities[index] += push_direction * 1.05 + Vector3.UP * 0.52
+		var horizontal := Vector2(foam_velocities[index].x, foam_velocities[index].z)
+		if horizontal.length() > 4.2:
+			horizontal = horizontal.normalized() * 4.2
+			foam_velocities[index].x = horizontal.x
+			foam_velocities[index].z = horizontal.y
 		if not foam_moving[index]:
 			foam_moving[index] = true
 			moving_indices.append(index)
