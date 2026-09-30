@@ -1509,7 +1509,7 @@ func add_daylight_details(bounds: Vector4) -> void:
 	add_stage_wall(Vector3(bounds.x + 0.19, 1.96, art_z), Vector3(0.025, 0.80, 1.05), Color("d2c4a6"))
 	add_stage_wall(Vector3(bounds.x + 0.21, 1.84, art_z), Vector3(0.015, 0.32, 0.87), Color("697e78"))
 	place_room_asset("res://assets/kenney_furniture/lampSquareFloor.glb", Vector3(bounds.x + 0.65, 0.055, bounds.z + 0.9), 0, 1)
-	if current_level == 2 or current_level == 3:
+	if current_level == 3:
 		for shelf_y in [1.5, 2.08]:
 			add_stage_wall(Vector3(0, shelf_y, bounds.z + 0.24), Vector3(1.65, 0.065, 0.40), Color("68533e"))
 			for book in 9:
@@ -1653,22 +1653,36 @@ func build_foyer_door() -> void:
 func build_guest_suite_map() -> void:
 	var b := level_bounds()
 	add_floor_section(Rect2(-4.3, -4.0, 8.6, 7.5), Color("8f745b"))
-	build_room_shell(b, Color("b7c3bd"), 1.5)
-	# A full-width partition creates a simple bedroom and reading nook without
-	# leaving a missing floor pocket behind the outer wall.
-	mansion_wall_z(1.3, -4.3, 4.3, Color("b7c3bd"), 1.35, 1.95)
-	add_stage_wall(Vector3(1.35, 0.07, 1.3), Vector3(2.05, 0.025, 0.42), Color("819b9a"))
-	mansion_room_light(Vector3(1.4, 2.62, 2.55), Color("d5e8e7"), 0.28)
-	place_room_asset("res://assets/kaykit_furniture/armchair.gltf", Vector3(-2.5, 0.055, 2.25), PI * 0.25, 0.8)
-	place_room_asset("res://assets/psx_interior/bed.glb", Vector3(-2.35, 0.055, -2.25), PI * 0.5, 1.0)
-	place_room_asset(room_asset_paths[1][1], Vector3(2.65, 0.055, -1.8), -PI * 0.5, 0.95)
-	place_tabletop_prop("res://assets/psx_interior/bookStack.glb", Vector3(2.65, 0.85, -1.8), Vector2(-0.2, 0.08), 0.55)
-	place_tabletop_prop("res://assets/tiny_kitchen/mug_blue.gltf", Vector3(2.65, 0.85, -1.8), Vector2(0.24, -0.13), 0.28)
-	place_room_asset(room_asset_paths[1][2], Vector3(1.6, 0.055, 2.55), PI, 0.9)
-	place_room_asset(room_asset_paths[1][3], Vector3(0.0, 0.05, -0.3), 0, 1.4)
-	reserve_spawn_area(Vector2(-2.35, -2.25), Vector2(2.5, 2.2))
-	reserve_spawn_area(Vector2(2.65, -1.8), Vector2(1.8, 1.4))
-	reserve_spawn_area(Vector2(0, -0.3), Vector2(2.4, 1.8))
+	build_room_shell(b, Color("b9b5a9"))
+	# A shared entrance gallery splits into a sleeping room and a work room.
+	# Their rear connecting door makes a loop instead of a dead-end corridor.
+	mansion_wall_z(0.25, -4.3, 0.0, Color("aab3a3"), -2.15, 1.65)
+	mansion_wall_z(0.25, 0.0, 4.3, Color("8fa8a7"), 2.0, 1.65)
+	mansion_wall_x(0.0, -4.0, 0.25, Color("ddd0b9"), -2.25, 1.5)
+	# Each room has its own floor language, ceiling beam, and light color.
+	add_stage_wall(Vector3(-2.2, 0.067, -1.8), Vector3(3.65, 0.022, 3.75), Color("a78970"))
+	add_stage_wall(Vector3(2.15, 0.068, -1.85), Vector3(3.65, 0.024, 3.70), Color("738f8e"))
+	add_stage_wall(Vector3(0.0, 0.068, 2.12), Vector3(1.32, 0.023, 2.40), Color("c6b49a"))
+	for x in [-2.15, 2.0]:
+		add_stage_wall(Vector3(x, 0.09, 0.25), Vector3(1.65, 0.026, 0.38), Color("d7c39e"))
+	add_stage_wall(Vector3(0.0, 3.18, 0.25), Vector3(8.25, 0.20, 0.30), Color("e8dcc8"))
+	mansion_room_light(Vector3(-2.25, 2.6, -1.9), Color("f4dbb8"), 0.29)
+	mansion_room_light(Vector3(2.2, 2.6, -1.9), Color("cce9e9"), 0.30)
+	mansion_room_light(Vector3(0.0, 2.55, 2.05), Color("f2e5cc"), 0.23)
+	place_room_asset("res://assets/psx_interior/bed.glb", Vector3(-2.35, 0.055, -2.45), PI * 0.5, 1.0)
+	place_room_asset("res://assets/psx_interior/tableSmall.glb", Vector3(-3.45, 0.055, -0.65), 0.0, 1.0)
+	place_tabletop_prop("res://assets/psx_interior/tableLamp.glb", Vector3(-3.45, 0.66, -0.65), Vector2.ZERO, 0.6)
+	place_room_asset(room_asset_paths[1][1], Vector3(2.55, 0.055, -2.35), -PI * 0.5, 0.95)
+	place_tabletop_prop("res://assets/psx_interior/bookStack.glb", Vector3(2.55, 0.85, -2.35), Vector2(-0.2, 0.08), 0.55)
+	place_tabletop_prop("res://assets/tiny_kitchen/mug_blue.gltf", Vector3(2.55, 0.85, -2.35), Vector2(0.24, -0.13), 0.28)
+	place_room_asset("res://assets/psx_interior/couchSmall.glb", Vector3(-2.55, 0.055, 2.15), PI, 1.0)
+	place_room_asset("res://assets/kaykit_furniture/armchair.gltf", Vector3(2.55, 0.055, 2.0), -PI * 0.2, 0.8)
+	reserve_spawn_area(Vector2(-2.35, -2.45), Vector2(2.5, 2.2))
+	reserve_spawn_area(Vector2(2.55, -2.35), Vector2(1.8, 1.4))
+	for wall_rect in [Rect2(-4.3, 0.05, 1.33, 0.4), Rect2(-1.33, 0.05, 2.5, 0.4), Rect2(2.82, 0.05, 1.48, 0.4), Rect2(-0.2, -4.0, 0.4, 1.0), Rect2(-0.2, -1.5, 0.4, 1.75)]:
+		reserve_spawn_area(wall_rect.get_center(), wall_rect.size)
+	for doorway in [Vector2(-2.15, 0.25), Vector2(2.0, 0.25), Vector2(0.0, -2.25)]:
+		reserve_spawn_area(doorway, Vector2(1.8, 1.2))
 
 
 func build_dining_map() -> void:
@@ -1699,16 +1713,19 @@ func build_library_map() -> void:
 	var b := level_bounds()
 	add_floor_section(Rect2(-7.0, -6.0, 14.0, 11.8), Color("6c735e"))
 	build_room_shell(b, Color("aab5aa"), 1.8)
-	# The western shelf corridor rejoins the main floor near the reading annex.
+	# The western corridor rejoins the main floor near the reading annex.
 	mansion_wall_x(-5.0, -4.7, 1.3, Color("aab5aa"), -3.7, 1.35)
 	mansion_wall_z(2.0, -7.0, 7.0, Color("aab5aa"), 0.0, 2.1)
 	add_stage_wall(Vector3(0, 0.07, 2.0), Vector3(2.2, 0.025, 0.44), Color("6c795f"))
 	mansion_room_light(Vector3(0, 2.62, 3.7), Color("e2edcf"), 0.28)
-	# Keep the library sightline open from the entrance.
-	for x in [-6.55, 6.55]:
-		for z in [-3.7, -0.7]:
-			place_room_asset("res://assets/psx_interior/bookshelf.glb", Vector3(x, 0.055, z), PI * 0.5, 1.0)
-	place_room_asset("res://assets/psx_interior/bookshelf.glb", Vector3(0.0, 0.055, -5.15), 0.0, 1.0)
+	# Wall panels and a central work table leave the annex uncluttered.
+	for x in [-6.72, 6.72]:
+		for z in [-3.25, -0.65]:
+			add_stage_wall(Vector3(x, 1.75, z), Vector3(0.035, 1.35, 1.40), Color("6f8678"))
+	place_room_asset("res://assets/psx_interior/couchSmall.glb", Vector3(0.0, 0.055, -4.6), PI, 1.0)
+	place_room_asset("res://assets/psx_interior/tableSmall.glb", Vector3(0.0, 0.055, -2.7), 0.0, 1.0)
+	place_tabletop_prop("res://assets/psx_interior/bookStack.glb", Vector3(0.0, 0.66, -2.7), Vector2(-0.17, 0.0), 0.48)
+	place_tabletop_prop("res://assets/psx_interior/cup.glb", Vector3(0.0, 0.66, -2.7), Vector2(0.21, 0.0), 0.85)
 	place_room_asset(room_asset_paths[3][3], Vector3(3.2, 0.055, 3.8), PI, 1.05)
 	place_tabletop_prop("res://assets/psx_interior/bookStack.glb", Vector3(3.2, 0.85, 3.8), Vector2(-0.16, 0.0), 0.52)
 	place_tabletop_prop("res://assets/psx_interior/cup.glb", Vector3(3.2, 0.85, 3.8), Vector2(0.28, 0.08), 0.9)
@@ -1823,25 +1840,25 @@ func mansion_slope() -> void:
 
 func mansion_secret_shelf() -> void:
 	secret_shelf_body = StaticBody3D.new()
-	secret_shelf_body.name = "HiddenLibraryShelf"
+	secret_shelf_body.name = "HiddenWallPanel"
 	secret_shelf_body.position = Vector3(-12, 1.24, -9.6)
-	var shelf_mesh := BoxMesh.new()
-	shelf_mesh.size = Vector3(0.34, 2.48, 1.28)
-	var shelf_visual := MeshInstance3D.new()
-	shelf_visual.mesh = shelf_mesh
-	shelf_visual.material_override = make_material(Color("554635"))
-	secret_shelf_body.add_child(shelf_visual)
-	for y in [-0.7, -0.18, 0.37, 0.91]:
-		var shelf_trim := MeshInstance3D.new()
+	var panel_mesh := BoxMesh.new()
+	panel_mesh.size = Vector3(0.34, 2.48, 1.28)
+	var panel_visual := MeshInstance3D.new()
+	panel_visual.mesh = panel_mesh
+	panel_visual.material_override = make_material(Color("747e72"))
+	secret_shelf_body.add_child(panel_visual)
+	for z in [-0.48, 0.48]:
+		var panel_trim := MeshInstance3D.new()
 		var trim_mesh := BoxMesh.new()
-		trim_mesh.size = Vector3(0.40, 0.06, 1.34)
-		shelf_trim.mesh = trim_mesh
-		shelf_trim.position.y = y
-		shelf_trim.material_override = make_material(Color("a5855d"))
-		secret_shelf_body.add_child(shelf_trim)
+		trim_mesh.size = Vector3(0.40, 2.32, 0.055)
+		panel_trim.mesh = trim_mesh
+		panel_trim.position.z = z
+		panel_trim.material_override = make_material(Color("d2c6aa"))
+		secret_shelf_body.add_child(panel_trim)
 	var collider := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = shelf_mesh.size
+	shape.size = panel_mesh.size
 	collider.shape = shape
 	secret_shelf_body.add_child(collider)
 	stage_root.add_child(secret_shelf_body)
@@ -1894,7 +1911,7 @@ func build_mansion_map() -> void:
 	mansion_wall_z(4, -5, -4, living)
 	mansion_wall_z(4, 4, 5, living)
 	# Doorways stay wide enough for the player and foam. The library has both
-	# a public approach and a concealed connection behind its bookcases.
+	# a public approach and a concealed connection behind a sliding panel.
 	mansion_wall_z(-4, -4, 4, bedroom, 0.0, 2.3)
 	mansion_wall_x(-4, -4, 4, plaster, 0.0, 2.3)
 	mansion_wall_x(4, -4, 4, dining, 0.0, 2.3)
@@ -1922,8 +1939,8 @@ func build_mansion_map() -> void:
 	add_stage_wall(Vector3(3.75, 0.08, 0), Vector3(0.44, 0.08, 2.4), Color("a58a74"))
 	add_stage_wall(Vector3(0, 0.08, 3.75), Vector3(2.6, 0.08, 0.44), Color("9c7755"))
 	place_room_asset("res://assets/psx_interior/bed.glb", Vector3(0, 0.055, -9.3), PI, 1.0)
-	place_room_asset("res://assets/psx_interior/bookshelf.glb", Vector3(-6.0, 0.055, -11.2), 0, 1.0)
-	place_room_asset("res://assets/psx_interior/bookshelf.glb", Vector3(-5.2, 0.055, -6.1), PI * 0.5, 1.0)
+	for position in [Vector3(-7.6, 1.8, -11.86), Vector3(-5.2, 1.8, -11.86)]:
+		add_stage_wall(position, Vector3(1.65, 1.2, 0.035), Color("798879"))
 	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(-8.0, 0.055, 1.8), 0.5, 0.8)
 	place_room_asset(room_asset_paths[2][0], Vector3(8.0, 0.055, 0.0), 0, 1.0)
 	add_table_setting(Vector3(8.0, 0.86, 0.0))
@@ -2424,7 +2441,7 @@ func interact_mansion_feature() -> bool:
 		secret_passage_open = true
 		if is_instance_valid(secret_shelf_body):
 			secret_shelf_body.position.z -= 1.6
-		message = "The bookcase slides aside. A service passage connects the rooms."
+		message = "The wall panel slides aside. A service passage connects the rooms."
 		update_ui()
 		return true
 	return false
