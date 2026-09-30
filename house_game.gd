@@ -1419,6 +1419,7 @@ func build_level_layout() -> void:
 	add_room_clutter(bounds, 7 + current_level * 2)
 	if current_level != 5:
 		add_daylight_details(bounds)
+	add_fantasy_garden(bounds)
 	light_switch.position = Vector3(3.86, 1.35, 2.7) if current_level == 5 else Vector3(bounds.y - 0.14, 1.35, bounds.w - 0.8)
 	light_switch.rotation.y = -PI * 0.5
 
@@ -1508,16 +1509,11 @@ func add_daylight_details(bounds: Vector4) -> void:
 	add_stage_wall(Vector3(bounds.x + 0.19, 1.96, art_z), Vector3(0.025, 0.80, 1.05), Color("d2c4a6"))
 	add_stage_wall(Vector3(bounds.x + 0.21, 1.84, art_z), Vector3(0.015, 0.32, 0.87), Color("697e78"))
 	place_room_asset("res://assets/kenney_furniture/lampSquareFloor.glb", Vector3(bounds.x + 0.65, 0.055, bounds.z + 0.9), 0, 1)
-	if current_level != 1:
+	if current_level == 2 or current_level == 3:
 		for shelf_y in [1.5, 2.08]:
 			add_stage_wall(Vector3(0, shelf_y, bounds.z + 0.24), Vector3(1.65, 0.065, 0.40), Color("68533e"))
 			for book in 9:
 				add_stage_wall(Vector3(-0.67 + book * 0.15, shelf_y + 0.19, bounds.z + 0.22), Vector3(0.10, 0.25 + (book % 3) * 0.04, 0.23), [Color("824d3b"),Color("576b65"),Color("ad986a")][book % 3])
-	if current_level == 4:
-		for shelf_x in [-5.9, -3.0, 3.0, 5.9]:
-			for shelf_y in [0.24, 0.73, 1.21, 1.69]:
-				for book in 5:
-					add_stage_wall(Vector3(shelf_x - 0.28 + book * 0.14, shelf_y + 0.14, -5.34), Vector3(0.10, 0.24 + (book % 3) * 0.045, 0.26), [Color("824d3b"),Color("576b65"),Color("ad986a")][book % 3])
 	add_stage_wall(Vector3(0,3.30,-1), Vector3(0.65,0.14,0.65), Color("ddd8c8"))
 	add_stage_wall(Vector3(0,3.21,-1), Vector3(0.53,0.045,0.53), Color("f4ebca"))
 	# A single roof slab covers the complete exterior shell.
@@ -1535,6 +1531,41 @@ func wood_material() -> ShaderMaterial:
 	var material := ShaderMaterial.new()
 	material.shader = load("res://wood_floor.gdshader")
 	return material
+
+
+func make_toon_material(color: Color) -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = load("res://assets/toon_shader/stylized.gdshader")
+	var white_pixel := Image.create(1, 1, false, Image.FORMAT_RGBA8)
+	white_pixel.fill(Color.WHITE)
+	material.set_shader_parameter("albedo_texture", ImageTexture.create_from_image(white_pixel))
+	material.set_shader_parameter("albedo_color", color)
+	material.set_shader_parameter("use_pattern", false)
+	material.set_shader_parameter("use_rim", false)
+	return material
+
+
+func add_fantasy_garden(bounds: Vector4) -> void:
+	var packed := load("res://assets/fantasy_trees/TreesPack.glb") as PackedScene
+	if packed == null:
+		return
+	var collection := packed.instantiate() as Node3D
+	if collection == null:
+		return
+	var tree := collection.find_child("garden_tree_green", true, false) as MeshInstance3D
+	var shrub := collection.find_child("garden_plant_1", true, false) as MeshInstance3D
+	for sample in [[tree, Vector3(bounds.x - 2.5, 0.0, bounds.w + 2.8), 0.65], [tree, Vector3(bounds.y + 2.5, 0.0, bounds.w + 2.8), 0.65], [shrub, Vector3(bounds.x - 1.0, 0.0, bounds.w + 0.8), 0.75], [shrub, Vector3(bounds.y + 1.0, 0.0, bounds.w + 0.8), 0.75]]:
+		var source: MeshInstance3D = sample[0]
+		if source == null:
+			continue
+		var visual := MeshInstance3D.new()
+		visual.mesh = source.mesh
+		visual.transform.basis = source.transform.basis.scaled(Vector3.ONE * float(sample[2]))
+		var box: AABB = visual.transform * visual.get_aabb()
+		var destination: Vector3 = sample[1]
+		visual.position = Vector3(destination.x - box.get_center().x, destination.y - box.position.y, destination.z - box.get_center().z)
+		stage_root.add_child(visual)
+	collection.free()
 
 
 func add_floor_section(rect: Rect2, color: Color) -> void:
@@ -1587,6 +1618,9 @@ func build_foyer_map() -> void:
 	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(-1.25, 0.055, -1.15), 0.4, 0.9)
 	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(1.15, 0.055, -0.85), -0.7, 1.1)
 	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(2.15, 0.055, 1.55), 1.2, 0.75)
+	place_room_asset("res://assets/psx_interior/tableSmall.glb", Vector3(-2.0, 0.055, 0.05), 0.0, 1.0)
+	place_tabletop_prop("res://assets/psx_interior/tableLamp.glb", Vector3(-2.0, 0.66, 0.05), Vector2.ZERO, 0.7)
+	place_tabletop_prop("res://assets/psx_interior/cup.glb", Vector3(-2.0, 0.66, 0.05), Vector2(0.23, 0.05), 0.9)
 	build_foyer_door()
 	# Pass 1: a compact ceremonial entry with two shallow side bays and a
 	# central path. The bays make the first room legible without adding a maze.
@@ -1626,8 +1660,10 @@ func build_guest_suite_map() -> void:
 	add_stage_wall(Vector3(1.35, 0.07, 1.3), Vector3(2.05, 0.025, 0.42), Color("819b9a"))
 	mansion_room_light(Vector3(1.4, 2.62, 2.55), Color("d5e8e7"), 0.28)
 	place_room_asset("res://assets/kaykit_furniture/armchair.gltf", Vector3(-2.5, 0.055, 2.25), PI * 0.25, 0.8)
-	place_room_asset(room_asset_paths[1][0], Vector3(-2.35, 0.055, -2.25), PI * 0.5, 1.05)
+	place_room_asset("res://assets/psx_interior/bed.glb", Vector3(-2.35, 0.055, -2.25), PI * 0.5, 1.0)
 	place_room_asset(room_asset_paths[1][1], Vector3(2.65, 0.055, -1.8), -PI * 0.5, 0.95)
+	place_tabletop_prop("res://assets/psx_interior/bookStack.glb", Vector3(2.65, 0.85, -1.8), Vector2(-0.2, 0.08), 0.55)
+	place_tabletop_prop("res://assets/tiny_kitchen/mug_blue.gltf", Vector3(2.65, 0.85, -1.8), Vector2(0.24, -0.13), 0.28)
 	place_room_asset(room_asset_paths[1][2], Vector3(1.6, 0.055, 2.55), PI, 0.9)
 	place_room_asset(room_asset_paths[1][3], Vector3(0.0, 0.05, -0.3), 0, 1.4)
 	reserve_spawn_area(Vector2(-2.35, -2.25), Vector2(2.5, 2.2))
@@ -1643,14 +1679,18 @@ func build_dining_map() -> void:
 	# destination behind the table, while preserving a wide central route.
 	mansion_wall_x(3.45, -5.0, 4.8, Color("c5b7a9"), 1.35, 1.9)
 	add_stage_wall(Vector3(4.35, 0.055, -1.4), Vector3(1.7, 0.025, 5.6), Color("8d7566"))
-	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(4.75, 0.055, -2.55), 0.3, 0.8)
+	place_room_asset("res://assets/tiny_kitchen/fridge.gltf", Vector3(4.7, 0.055, -3.6), 0.0, 1.0)
+	place_room_asset("res://assets/tiny_kitchen/stove.gltf", Vector3(4.7, 0.055, -1.5), 0.0, 1.0)
+	place_room_asset("res://assets/tiny_kitchen/countertop_sink.gltf", Vector3(4.7, 0.055, 3.4), 0.0, 1.0)
+	place_tabletop_prop("res://assets/tiny_kitchen/kettle.gltf", Vector3(4.7, 0.97, 3.4), Vector2(-0.23, 0.04), 0.28)
 	mansion_room_light(Vector3(4.4, 2.62, 0.0), Color("fff0d8"), 0.28)
 	for x in [-4.7, 4.7]:
 		place_room_asset("res://assets/kenney_building/column-wide.glb", Vector3(x, 0.05, -3.7), 0, 1.1)
 	for z in [-2.5, 0.0]:
-		place_room_asset(room_asset_paths[2][0], Vector3(0.0, 0.055, z), 0, 1.0)
+		place_room_asset("res://assets/tiny_kitchen/table_A.gltf" if z < -1.0 else room_asset_paths[2][0], Vector3(0.0, 0.055, z), 0, 1.0)
 		place_room_asset(room_asset_paths[2][1], Vector3(-2.0, 0.055, z), PI * 0.5, 0.9)
 		place_room_asset(room_asset_paths[2][1], Vector3(2.0, 0.055, z), -PI * 0.5, 0.9)
+		add_table_setting(Vector3(0, 0.88 if z < -1.0 else 0.86, z))
 	place_room_asset(room_asset_paths[2][2], Vector3(0, 0.83, 0), 0, 0.75)
 	reserve_spawn_area(Vector2(0, 0), Vector2(5.0, 7.8))
 
@@ -1665,9 +1705,13 @@ func build_library_map() -> void:
 	add_stage_wall(Vector3(0, 0.07, 2.0), Vector3(2.2, 0.025, 0.44), Color("6c795f"))
 	mansion_room_light(Vector3(0, 2.62, 3.7), Color("e2edcf"), 0.28)
 	# Keep the library sightline open from the entrance.
-	for x in [-5.9, -3.0, 3.0, 5.9]:
-		place_room_asset(room_asset_paths[3][0], Vector3(x, 0.055, -5.35), 0, 1.0)
+	for x in [-6.55, 6.55]:
+		for z in [-3.7, -0.7]:
+			place_room_asset("res://assets/psx_interior/bookshelf.glb", Vector3(x, 0.055, z), PI * 0.5, 1.0)
+	place_room_asset("res://assets/psx_interior/bookshelf.glb", Vector3(0.0, 0.055, -5.15), 0.0, 1.0)
 	place_room_asset(room_asset_paths[3][3], Vector3(3.2, 0.055, 3.8), PI, 1.05)
+	place_tabletop_prop("res://assets/psx_interior/bookStack.glb", Vector3(3.2, 0.85, 3.8), Vector2(-0.16, 0.0), 0.52)
+	place_tabletop_prop("res://assets/psx_interior/cup.glb", Vector3(3.2, 0.85, 3.8), Vector2(0.28, 0.08), 0.9)
 	place_room_asset(room_asset_paths[3][2], Vector3(-2.4, 0.75, 3.55), 0, 0.85)
 	reserve_spawn_area(Vector2(0, -5.25), Vector2(13.0, 1.3))
 	reserve_spawn_area(Vector2(0, 3.8), Vector2(3.4, 1.8))
@@ -1773,7 +1817,7 @@ func mansion_slope() -> void:
 	cache_mesh.size = Vector3(0.44, 0.32, 0.40)
 	loft_cache_visual.mesh = cache_mesh
 	loft_cache_visual.position = Vector3(-9.6, 1.52, -10.8)
-	loft_cache_visual.material_override = make_material(Color("e6bb64"), 0.3)
+	loft_cache_visual.material_override = make_toon_material(Color("e6bb64"))
 	stage_root.add_child(loft_cache_visual)
 
 
@@ -1877,17 +1921,36 @@ func build_mansion_map() -> void:
 	add_stage_wall(Vector3(-3.75, 0.08, 0), Vector3(0.44, 0.08, 2.4), Color("777875"))
 	add_stage_wall(Vector3(3.75, 0.08, 0), Vector3(0.44, 0.08, 2.4), Color("a58a74"))
 	add_stage_wall(Vector3(0, 0.08, 3.75), Vector3(2.6, 0.08, 0.44), Color("9c7755"))
-	place_room_asset(room_asset_paths[1][0], Vector3(0, 0.055, -9.3), PI, 1.0)
-	place_room_asset(room_asset_paths[3][0], Vector3(-6.0, 0.055, -11.2), 0, 0.9)
-	place_room_asset(room_asset_paths[3][0], Vector3(-5.2, 0.055, -6.1), PI * 0.5, 0.9)
+	place_room_asset("res://assets/psx_interior/bed.glb", Vector3(0, 0.055, -9.3), PI, 1.0)
+	place_room_asset("res://assets/psx_interior/bookshelf.glb", Vector3(-6.0, 0.055, -11.2), 0, 1.0)
+	place_room_asset("res://assets/psx_interior/bookshelf.glb", Vector3(-5.2, 0.055, -6.1), PI * 0.5, 1.0)
 	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(-8.0, 0.055, 1.8), 0.5, 0.8)
 	place_room_asset(room_asset_paths[2][0], Vector3(8.0, 0.055, 0.0), 0, 1.0)
-	place_room_asset(room_asset_paths[4][2], Vector3(0, 0.055, 9.2), PI, 1.0)
+	add_table_setting(Vector3(8.0, 0.86, 0.0))
+	place_room_asset("res://assets/tiny_kitchen/fridge.gltf", Vector3(10.4, 0.055, -2.75), 0.0, 1.0)
+	place_room_asset("res://assets/tiny_kitchen/stove.gltf", Vector3(6.3, 0.055, -2.75), 0.0, 1.0)
+	place_room_asset("res://assets/tiny_kitchen/countertop_sink.gltf", Vector3(8.35, 0.055, -2.75), 0.0, 1.0)
+	place_tabletop_prop("res://assets/tiny_kitchen/kettle.gltf", Vector3(8.35, 0.97, -2.75), Vector2(0.0, 0.04), 0.28)
+	place_room_asset("res://assets/psx_interior/couchSmall.glb", Vector3(0, 0.055, 9.2), PI, 1.0)
 	place_room_asset(room_asset_paths[0][1], Vector3(-2.7, 0.055, 1.0), 0, 0.9)
 	reserve_spawn_area(Vector2(0, 2.3), Vector2(2.6, 2.2))
 	for doorway in [Vector2(0, -4), Vector2(-4, 0), Vector2(4, 0), Vector2(0, 4), Vector2(-8, -4), Vector2(-4, -8), Vector2(-12, -9.6), Vector2(-12, -3)]:
 		reserve_spawn_area(doorway, Vector2(2.4, 2.4))
 	reserve_spawn_area(Vector2(-9.6, -8.2), Vector2(2.3, 5.0))
+
+
+func place_tabletop_prop(path: String, tabletop: Vector3, offset: Vector2, prop_scale: float = 1.0) -> void:
+	var surface_position := Vector3(tabletop.x + offset.x, tabletop.y, tabletop.z + offset.y)
+	var prop := place_room_asset(path, surface_position, 0.0, prop_scale)
+	if prop != null:
+		prop.set_meta("on_table", true)
+		prop.set_meta("tabletop_y", tabletop.y)
+
+
+func add_table_setting(tabletop: Vector3) -> void:
+	place_tabletop_prop("res://assets/tiny_kitchen/plate.gltf", tabletop, Vector2(-0.33, 0.0), 0.38)
+	place_tabletop_prop("res://assets/tiny_kitchen/mug_blue.gltf", tabletop, Vector2(0.34, -0.12), 0.25)
+	place_tabletop_prop("res://assets/psx_interior/cup.glb", tabletop, Vector2(0.05, 0.25), 0.85)
 
 
 func place_room_asset(path: String, position: Vector3, yaw: float = 0.0, uniform_scale: float = 1.0, parent: Node3D = stage_root) -> Node3D:
@@ -1902,7 +1965,7 @@ func place_room_asset(path: String, position: Vector3, yaw: float = 0.0, uniform
 	for part in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh_part := part as MeshInstance3D
 		local_box = local_box.merge(model.global_transform.affine_inverse() * mesh_part.global_transform * mesh_part.get_aabb())
-	var desired_heights := {"bedDouble": 0.85, "desk": 0.78, "tableCloth": 0.78, "tableRound": 0.78, "chairCushion": 0.94, "bookcaseOpen": 2.15, "loungeSofa": 0.85, "pottedPlant": 1.1, "armchair": 0.9, "lampSquareFloor": 1.65}
+	var desired_heights := {"bedDouble": 0.85, "desk": 0.78, "tableCloth": 0.78, "tableRound": 0.78, "chairCushion": 0.94, "bookcaseOpen": 2.15, "loungeSofa": 0.85, "pottedPlant": 1.1, "armchair": 0.9, "lampSquareFloor": 1.65, "bed": 0.82, "bookshelf": 2.0, "couchSmall": 0.85, "tableSmall": 0.58, "fridge": 1.75, "stove": 0.9, "countertop_sink": 0.9, "table_A": 0.8}
 	var asset_name := path.get_file().get_basename()
 	if desired_heights.has(asset_name):
 		uniform_scale = float(desired_heights[asset_name]) / maxf(0.01, local_box.size.y)
