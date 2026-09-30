@@ -1738,6 +1738,19 @@ func make_asset_cleanup_body(position: Vector3, asset_path: String) -> StaticBod
 	if block_visual != null:
 		block_visual.visible = false
 	place_room_asset(asset_path, Vector3.ZERO, randf_range(-PI, PI), 0.72, body)
+	var highlight := MeshInstance3D.new()
+	var highlight_mesh := QuadMesh.new()
+	highlight_mesh.size = Vector2(0.72, 0.72)
+	highlight.mesh = highlight_mesh
+	highlight.position = Vector3(0, 0.025, 0)
+	highlight.rotation.x = -PI * 0.5
+	var highlight_material := ShaderMaterial.new()
+	highlight_material.shader = load("res://item_highlight.gdshader")
+	highlight.material_override = highlight_material
+	highlight.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	highlight.visible = false
+	highlight.set_meta("item_highlight", true)
+	body.add_child(highlight)
 	return body
 
 
@@ -1786,6 +1799,9 @@ func set_cleanup_tasks_visible(show_dirt: bool, show_items: bool) -> void:
 		if is_instance_valid(item):
 			item.visible = true
 			item.collision_layer = 16 if show_items else 0
+			for item_child in item.get_children():
+				if item_child.has_meta("item_highlight"):
+					item_child.visible = show_items
 	for child in stage_root.get_children():
 		if child.has_meta("organize_marker"):
 			child.visible = show_items
@@ -1846,6 +1862,9 @@ func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
 		organized_items += 1
 		misplaced_items.erase(body)
 		body.collision_layer = 0
+		for item_child in body.get_children():
+			if item_child.has_meta("item_highlight"):
+				item_child.visible = false
 		var tween := create_tween()
 		var organize_time := maxf(0.12, 0.42 - float(organize_skill) * 0.09)
 		tween.tween_property(body, "position", body.get_meta("target"), organize_time).set_trans(Tween.TRANS_BACK)
