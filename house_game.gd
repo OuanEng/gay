@@ -54,6 +54,12 @@ var buy_uv_button: Button
 var buy_blower_button: Button
 var upgrade_uv_button: Button
 var upgrade_blower_button: Button
+var buy_gloves_button: Button
+var buy_mop_button: Button
+var buy_boots_button: Button
+var buy_magnet_button: Button
+var buy_vacuum_button: Button
+var buy_helper_button: Button
 var next_level_button: Button
 var tools_bar: HBoxContainer
 var tool_buttons: Array[Button] = []
@@ -92,15 +98,20 @@ var owns_blower := false
 var uv_level := 0
 var blower_level := 0
 var level_foam_counts := [10, 50, 200, 600, 1500, 4000, 10000, 25000, 50000, 100000]
-var level_values := [25, 45, 75, 110, 160, 230, 320, 450, 650, 1000]
+var level_values := [60, 110, 190, 300, 500, 650, 800, 1000, 1300, 1700]
 var level_names := ["TINY BOX", "BIG BOX", "BEDROOM", "PLAYROOM", "SMALL HOUSE", "TWO ROOMS", "FOAM HOUSE", "STORAGE", "FACTORY", "MEGA WAREHOUSE"]
 var current_foam_count := 10
-var skill_points := 2
+var skill_points := 0
 var hand_skill := 0
 var blower_skill := 0
 var mop_skill := 0
 var organize_skill := 0
 var mobility_skill := 0
+var owns_vacuum := false
+var vacuum_level := 0
+var owns_helper := false
+var vacuum_timer := 0.0
+var helper_timer := 0.0
 var crouching := false
 var cleanup_phase := 0
 var dirt_spots: Array[StaticBody3D] = []
@@ -112,7 +123,7 @@ var room_item_counts := [2, 3, 4, 5, 7]
 var cleanup_room_names := ["GRAND FOYER", "GUEST ROOM", "DINING HALL", "LIBRARY", "BALLROOM"]
 var cleanup_foam_counts := [420, 800, 1400, 2100, 3000]
 var phase_names := ["CLEAR FOAM", "CLEAN SURFACES", "ORGANIZE ROOM"]
-var skill_coin_costs := [0, 40, 90]
+var skill_coin_costs := [20, 60, 140]
 var room_asset_paths := [
 	["res://assets/kenney_building/column-wide.glb", "res://assets/kenney_furniture/pottedPlant.glb", "res://assets/kaykit_furniture/armchair.gltf", "res://assets/kenney_furniture/loungeSofa.glb"],
 	["res://assets/kenney_furniture/bedDouble.glb", "res://assets/kenney_furniture/desk.glb", "res://assets/kaykit_furniture/lamp_table.gltf", "res://assets/kenney_furniture/rugRectangle.glb"],
@@ -594,10 +605,10 @@ func make_shop_ui(root: Control) -> void:
 	shop_panel.anchor_right = 0.5
 	shop_panel.anchor_top = 0.5
 	shop_panel.anchor_bottom = 0.5
-	shop_panel.offset_left = -270.0
-	shop_panel.offset_right = 270.0
-	shop_panel.offset_top = -230.0
-	shop_panel.offset_bottom = 230.0
+	shop_panel.offset_left = -440.0
+	shop_panel.offset_right = 440.0
+	shop_panel.offset_top = -300.0
+	shop_panel.offset_bottom = 300.0
 	shop_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.04, 0.09, 0.13, 0.96), Color("d6b86c")))
 	shop_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.add_child(shop_panel)
@@ -613,12 +624,30 @@ func make_shop_ui(root: Control) -> void:
 	shop_money.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	shop_money.add_theme_font_size_override("font_size", 20)
 	shop.add_child(shop_money)
-	sell_button = shop_button(shop, "SELL PEARL", sell_pearl)
-	buy_uv_button = shop_button(shop, "BUY UV FLASHLIGHT — 50", buy_uv)
-	buy_blower_button = shop_button(shop, "BUY FOAM BLOWER — 120", buy_blower)
-	upgrade_uv_button = shop_button(shop, "UPGRADE UV RANGE — 100", upgrade_uv)
-	upgrade_blower_button = shop_button(shop, "UPGRADE BLOWER — 150", upgrade_blower)
-	shop_button(shop, "OPEN SKILL TREE", func(): open_skill_tree(true))
+	var explanation := Label.new()
+	explanation.text = "SPEND YOUR PAY TO MAKE THE NEXT CONTRACT FASTER"
+	explanation.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	explanation.add_theme_color_override("font_color", Color("9fc7c5"))
+	shop.add_child(explanation)
+	var gear_grid := GridContainer.new()
+	gear_grid.columns = 2
+	gear_grid.add_theme_constant_override("h_separation", 10)
+	gear_grid.add_theme_constant_override("v_separation", 8)
+	shop.add_child(gear_grid)
+	buy_gloves_button = shop_button(gear_grid, "REINFORCED GLOVES", buy_gloves)
+	buy_mop_button = shop_button(gear_grid, "WIDE MOP", buy_wide_mop)
+	buy_boots_button = shop_button(gear_grid, "LIGHT WORK BOOTS", buy_work_boots)
+	buy_magnet_button = shop_button(gear_grid, "ORGANIZER MAGNET", buy_organizer_magnet)
+	buy_blower_button = shop_button(gear_grid, "FOAM BLOWER", buy_blower)
+	buy_vacuum_button = shop_button(gear_grid, "FOAM VACUUM", buy_vacuum)
+	buy_helper_button = shop_button(gear_grid, "CLEANUP HELPER", buy_helper)
+	var mastery_button := shop_button(gear_grid, "ADVANCED TRAINING\nSpend skill points on 3-level mastery", func(): open_skill_tree(true))
+	for button in [buy_gloves_button, buy_mop_button, buy_boots_button, buy_magnet_button, buy_blower_button, buy_vacuum_button, buy_helper_button, mastery_button]:
+		button.custom_minimum_size = Vector2(410, 62)
+	sell_button = Button.new()
+	buy_uv_button = Button.new()
+	upgrade_uv_button = Button.new()
+	upgrade_blower_button = Button.new()
 	next_level_button = shop_button(shop, "NEXT LEVEL", next_level)
 	shop_panel.visible = false
 
@@ -1051,8 +1080,7 @@ func reset_career_progress(start_level: int) -> void:
 	for i in range(start_level - 1):
 		coins += level_values[i]
 	current_level = clampi(start_level, 1, 5)
-	skill_points = 2
-	skill_points += (current_level - 1) * 2
+	skill_points = current_level - 1
 	hand_skill = 0
 	blower_skill = 0
 	mop_skill = 0
@@ -1062,8 +1090,13 @@ func reset_career_progress(start_level: int) -> void:
 	pearl_sold = false
 	owns_uv = false
 	owns_blower = false
+	owns_vacuum = false
+	vacuum_level = 0
+	owns_helper = false
 	uv_level = 0
 	blower_level = 0
+	vacuum_timer = 0.0
+	helper_timer = 0.0
 
 
 func start_round(chosen_mode: String) -> void:
@@ -1760,7 +1793,7 @@ func complete_cleanup_room() -> void:
 	mouse_captured = false
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	coins += level_values[current_level - 1]
-	skill_points += 2
+	skill_points += 1
 	pearl_sold = true
 	tools_bar.visible = false
 	crosshair.visible = false
@@ -1917,6 +1950,7 @@ func _physics_process(delta: float) -> void:
 	blow_cooldown = maxf(0.0, blow_cooldown - delta)
 	push_cooldown = maxf(0.0, push_cooldown - delta)
 	last_foam_assist_timer += delta
+	update_cleanup_automation(delta)
 	if blower_on and mouse_captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and blow_cooldown <= 0.0:
 		blow_forward()
 		blow_cooldown = 0.22
@@ -1962,6 +1996,38 @@ func update_switch_prompt() -> void:
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	hint.text = "E / CLICK: FLIP LIGHT SWITCH" if not hit.is_empty() and hit["collider"] == light_switch else message
 	hint_panel.visible = not hint.text.is_empty()
+
+
+func update_cleanup_automation(delta: float) -> void:
+	if cleanup_phase != 0 or removed_foam >= current_foam_count:
+		return
+	vacuum_timer = maxf(0.0, vacuum_timer - delta)
+	helper_timer = maxf(0.0, helper_timer - delta)
+	var collected := 0
+	if owns_vacuum and vacuum_timer <= 0.0:
+		var radius := 1.0 + float(vacuum_level) * 0.35
+		var limit := 1 + vacuum_level
+		for index in foam_near(player.global_position, radius):
+			if collected >= limit:
+				break
+			if foam_alive[index]:
+				remove_foam(index)
+				collected += 1
+		vacuum_timer = 0.48 if vacuum_level == 1 else 0.25
+	if owns_helper and helper_timer <= 0.0:
+		for index in foam_alive.size():
+			if foam_alive[index]:
+				remove_foam(index)
+				collected += 1
+				break
+		helper_timer = 1.4
+	if collected > 0:
+		removed_foam = mini(current_foam_count, removed_foam + collected)
+		message = "Cleanup gear collected %d foam bead%s." % [collected, "s" if collected > 1 else ""]
+		if removed_foam >= current_foam_count:
+			advance_cleanup_phase()
+		else:
+			update_ui()
 
 
 func move_foam(delta: float) -> void:
@@ -2244,9 +2310,25 @@ func update_shop() -> void:
 	shop_money.text = "CLEANUP REWARD   +%d     TOTAL   %d" % [level_values[current_level - 1], coins]
 	sell_button.visible = false
 	buy_uv_button.visible = false
-	buy_blower_button.visible = false
+	buy_blower_button.visible = true
 	upgrade_uv_button.visible = false
 	upgrade_blower_button.visible = false
+	buy_gloves_button.text = "REINFORCED GLOVES   %s\nPick up 3 foam beads at once" % ("OWNED" if hand_skill >= 1 else "$20")
+	buy_gloves_button.disabled = hand_skill >= 1 or coins < 20
+	buy_mop_button.text = "WIDE MOP   %s\nScrub faster and clean nearby stains" % ("OWNED" if mop_skill >= 1 else "$30")
+	buy_mop_button.disabled = mop_skill >= 1 or coins < 30
+	buy_boots_button.text = "LIGHT WORK BOOTS   %s\nWalk 12%% faster" % ("OWNED" if mobility_skill >= 1 else "$40")
+	buy_boots_button.disabled = mobility_skill >= 1 or coins < 40
+	buy_magnet_button.text = "ORGANIZER MAGNET   %s\nLonger reach and faster placement" % ("OWNED" if organize_skill >= 1 else "$50")
+	buy_magnet_button.disabled = organize_skill >= 1 or coins < 50
+	buy_blower_button.text = "FOAM BLOWER   %s\nPush piles away to open a path" % ("OWNED" if owns_blower else "$70")
+	buy_blower_button.disabled = owns_blower or coins < 70
+	var vacuum_price := 130 if vacuum_level == 0 else 180
+	var vacuum_state := "$%d" % vacuum_price if vacuum_level < 2 else "MAX"
+	buy_vacuum_button.text = "FOAM VACUUM   %s\nAuto-collect foam near your feet%s" % [vacuum_state, " faster" if vacuum_level == 1 else ""]
+	buy_vacuum_button.disabled = vacuum_level >= 2 or coins < vacuum_price
+	buy_helper_button.text = "CLEANUP HELPER   %s\nCollects one foam bead every 1.4 sec" % ("OWNED" if owns_helper else "$220")
+	buy_helper_button.disabled = owns_helper or coins < 220
 	next_level_button.disabled = false
 	next_level_button.text = "ENTER ROOM %d" % (current_level + 1) if current_level < 5 else "REPLAY BALLROOM"
 	update_skill_tree()
@@ -2270,11 +2352,58 @@ func buy_uv() -> void:
 
 
 func buy_blower() -> void:
-	if coins < 120 or owns_blower:
+	if coins < 70 or owns_blower:
 		return
-	coins -= 120
+	coins -= 70
 	owns_blower = true
 	blower_level = 1
+	blower_skill = maxi(blower_skill, 1)
+	if tool_buttons.size() >= 3:
+		tool_buttons[2].visible = true
+	update_shop()
+
+
+func buy_gloves() -> void:
+	if coins < 20 or hand_skill >= 1: return
+	coins -= 20
+	hand_skill = 1
+	update_shop()
+
+
+func buy_wide_mop() -> void:
+	if coins < 30 or mop_skill >= 1: return
+	coins -= 30
+	mop_skill = 1
+	update_shop()
+
+
+func buy_work_boots() -> void:
+	if coins < 40 or mobility_skill >= 1: return
+	coins -= 40
+	mobility_skill = 1
+	update_shop()
+
+
+func buy_organizer_magnet() -> void:
+	if coins < 50 or organize_skill >= 1: return
+	coins -= 50
+	organize_skill = 1
+	update_shop()
+
+
+func buy_vacuum() -> void:
+	var cost := 130 if vacuum_level == 0 else 180
+	if coins < cost or vacuum_level >= 2: return
+	coins -= cost
+	vacuum_level += 1
+	owns_vacuum = true
+	update_shop()
+
+
+func buy_helper() -> void:
+	if coins < 220 or owns_helper: return
+	coins -= 220
+	owns_helper = true
 	update_shop()
 
 
