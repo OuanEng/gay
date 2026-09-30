@@ -118,8 +118,8 @@ var dirt_spots: Array[StaticBody3D] = []
 var misplaced_items: Array[StaticBody3D] = []
 var cleaned_surfaces := 0
 var organized_items := 0
-var room_dirt_counts := [2, 3, 4, 5, 7]
-var room_item_counts := [2, 3, 4, 5, 7]
+var room_dirt_counts := [5, 9, 14, 20, 28]
+var room_item_counts := [3, 5, 8, 12, 17]
 var cleanup_room_names := ["GRAND FOYER", "GUEST ROOM", "DINING HALL", "LIBRARY", "BALLROOM"]
 var cleanup_foam_counts := [420, 800, 1400, 2100, 3000]
 var phase_names := ["CLEAR FOAM", "CLEAN SURFACES", "ORGANIZE ROOM"]
@@ -658,48 +658,76 @@ func make_skill_tree_ui(root: Control) -> void:
 	skill_panel.anchor_right = 0.5
 	skill_panel.anchor_top = 0.5
 	skill_panel.anchor_bottom = 0.5
-	skill_panel.offset_left = -360.0
-	skill_panel.offset_right = 360.0
-	skill_panel.offset_top = -280.0
-	skill_panel.offset_bottom = 280.0
+	skill_panel.offset_left = -570.0
+	skill_panel.offset_right = 570.0
+	skill_panel.offset_top = -330.0
+	skill_panel.offset_bottom = 330.0
 	skill_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.035, 0.075, 0.11, 0.98), Color("8a6fd1")))
 	skill_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.add_child(skill_panel)
-	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 10)
-	skill_panel.add_child(column)
+	var tree := Control.new()
+	tree.custom_minimum_size = Vector2(1100, 620)
+	tree.set_script(load("res://skill_tree_backdrop.gd"))
+	tree.set("game", self)
+	skill_panel.add_child(tree)
 	var title := Label.new()
 	title.text = "CLEANER SKILL TREE"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.position = Vector2(0, 8)
+	title.size = Vector2(1100, 40)
 	title.add_theme_font_size_override("font_size", 30)
 	title.add_theme_color_override("font_color", Color("eadcff"))
-	column.add_child(title)
+	tree.add_child(title)
 	skill_points_label = Label.new()
 	skill_points_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skill_points_label.position = Vector2(0, 48)
+	skill_points_label.size = Vector2(1100, 30)
 	skill_points_label.add_theme_font_size_override("font_size", 20)
-	column.add_child(skill_points_label)
+	tree.add_child(skill_points_label)
 	var intro := Label.new()
-	intro.text = "Spend points earned from restored rooms. Each branch has 3 levels."
+	intro.text = "Buy each branch from bottom to top  •  Every restored room earns 1 skill point"
 	intro.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	intro.position = Vector2(0, 78)
+	intro.size = Vector2(1100, 26)
 	intro.add_theme_color_override("font_color", Color("b9cbd2"))
-	column.add_child(intro)
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 10)
-	grid.add_theme_constant_override("v_separation", 10)
-	column.add_child(grid)
+	tree.add_child(intro)
+	var legend := Label.new()
+	legend.text = "FILLED = OWNED     BRIGHT RING = AVAILABLE     GRAY = LOCKED"
+	legend.position = Vector2(22, 560)
+	legend.size = Vector2(620, 28)
+	legend.add_theme_font_size_override("font_size", 14)
+	legend.add_theme_color_override("font_color", Color("91a1ad"))
+	tree.add_child(legend)
 	var labels := ["QUICK HANDS", "FOAM BLOWER", "DEEP CLEAN", "ORGANIZER MAGNET", "LIGHT FEET"]
-	for i in labels.size():
-		var button := Button.new()
-		button.custom_minimum_size = Vector2(325.0, 68.0)
-		button.pressed.connect(upgrade_skill.bind(i))
-		grid.add_child(button)
-		skill_buttons.append(button)
+	var colors := [Color("35e68a"), Color("35bce6"), Color("f4c430"), Color("e865ce"), Color("ff5b5b")]
+	var branch_x := [110.0, 330.0, 550.0, 770.0, 990.0]
+	var node_y := [400.0, 295.0, 190.0]
+	for branch in labels.size():
+		var branch_label := Label.new()
+		branch_label.text = labels[branch]
+		branch_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		branch_label.position = Vector2(branch_x[branch] - 100, 118)
+		branch_label.size = Vector2(200, 30)
+		branch_label.add_theme_font_size_override("font_size", 17)
+		branch_label.add_theme_color_override("font_color", colors[branch])
+		tree.add_child(branch_label)
+		for tier in 3:
+			var button := Button.new()
+			button.position = Vector2(branch_x[branch] - 41, node_y[tier] - 41)
+			button.size = Vector2(82, 82)
+			button.add_theme_font_size_override("font_size", 13)
+			button.set_meta("branch", branch)
+			button.set_meta("tier", tier + 1)
+			button.set_meta("branch_color", colors[branch])
+			button.pressed.connect(upgrade_skill_node.bind(branch, tier + 1))
+			tree.add_child(button)
+			skill_buttons.append(button)
 	var close := Button.new()
 	close.text = "CLOSE SKILL TREE    [K]"
-	close.custom_minimum_size.y = 44.0
+	close.position = Vector2(845, 548)
+	close.size = Vector2(235, 48)
 	close.pressed.connect(close_skill_tree)
-	column.add_child(close)
+	tree.add_child(close)
 	skill_panel.visible = false
 	update_skill_tree()
 
@@ -989,12 +1017,16 @@ func cheat_go_to_level(level: int) -> void:
 
 
 func upgrade_skill(branch: int) -> void:
+	upgrade_skill_node(branch, get_skill_level(branch) + 1)
+
+
+func upgrade_skill_node(branch: int, target_level: int) -> void:
 	if skill_points <= 0:
 		message = "No skill points. Restore another room to earn more."
 		update_skill_tree()
 		return
 	var level := get_skill_level(branch)
-	if level >= 3:
+	if level >= 3 or target_level != level + 1:
 		return
 	var coin_cost: int = skill_coin_costs[level]
 	if coins < coin_cost:
@@ -1003,7 +1035,7 @@ func upgrade_skill(branch: int) -> void:
 		return
 	skill_points -= 1
 	coins -= coin_cost
-	set_skill_level(branch, level + 1)
+	set_skill_level(branch, target_level)
 	if branch == 1:
 		owns_blower = true
 		blower_level = blower_skill
@@ -1038,11 +1070,38 @@ func update_skill_tree() -> void:
 		"Longer reach and faster object placement",
 		"Move faster and crouch without slowing as much"
 	]
+	var tier_effects := [
+		["PICK 3", "PICK 5", "PICK 7"],
+		["UNLOCK", "+POWER", "+RADIUS"],
+		["SCRUB +", "CLEAN 3", "CLEAN 4"],
+		["REACH +", "REACH ++", "REACH +++"],
+		["SPEED 12%", "SPEED 24%", "SPEED 36%"]
+	]
 	for i in skill_buttons.size():
-		var level := get_skill_level(i)
-		var cost_text := "MAX" if level >= 3 else ("FREE" if skill_coin_costs[level] == 0 else "%d COINS" % skill_coin_costs[level])
-		skill_buttons[i].text = "%s   %d/3   •   %s\n%s" % [names[i], level, cost_text, details[i]]
-		skill_buttons[i].disabled = level >= 3 or skill_points <= 0 or (level < 3 and coins < skill_coin_costs[level])
+		var button := skill_buttons[i]
+		var branch: int = int(button.get_meta("branch"))
+		var tier: int = int(button.get_meta("tier"))
+		var level := get_skill_level(branch)
+		var completed := tier <= level
+		var available := tier == level + 1
+		var cost: int = skill_coin_costs[tier - 1]
+		var roman: String = ["I", "II", "III"][tier - 1]
+		button.text = "%s  %s\n%s" % [roman, tier_effects[branch][tier - 1], "OWNED" if completed else "$%d" % cost]
+		button.tooltip_text = "%s %s: %s" % [names[branch], roman, details[branch]]
+		button.disabled = completed or not available or skill_points <= 0 or coins < cost
+		var branch_color: Color = button.get_meta("branch_color")
+		var style := StyleBoxFlat.new()
+		style.bg_color = branch_color.darkened(0.28) if completed else Color(0.045, 0.075, 0.10, 0.98)
+		style.border_color = branch_color if completed or available else Color("465260")
+		var border := 6 if available else 4
+		style.set_border_width_all(border)
+		style.set_corner_radius_all(41)
+		button.add_theme_stylebox_override("normal", style)
+		button.add_theme_stylebox_override("hover", style)
+		button.add_theme_stylebox_override("pressed", style)
+		button.add_theme_stylebox_override("disabled", style)
+		button.add_theme_color_override("font_color", Color.WHITE)
+		button.add_theme_color_override("font_disabled_color", branch_color.lightened(0.35) if completed else Color("77828e"))
 
 
 func show_modes() -> void:
@@ -1641,12 +1700,17 @@ func build_cleanup_tasks(rng: RandomNumberGenerator) -> void:
 		var on_wall: bool = i % 2 == 1
 		var floor_spot := random_room_spot(rng)
 		var pos := Vector3(floor_spot.x, 0.065, floor_spot.y)
-		var size := Vector3(0.72, 0.025, 0.72)
+		var width := rng.randf_range(0.45, 1.05)
+		var depth := rng.randf_range(0.38, 0.92)
+		var size := Vector3(width, 0.025, depth)
 		if on_wall:
 			var wall_x := bounds.x + 0.11 if i % 4 == 1 else bounds.y - 0.11
 			pos = Vector3(wall_x, rng.randf_range(0.7, 2.2), rng.randf_range(bounds.z + 0.8, bounds.w - 0.8))
-			size = Vector3(0.04, 0.62, 0.72)
-		var dirt := make_cleanup_body("Wall grime" if on_wall else "Floor dirt", pos, size, Color("665044"), 8)
+			size = Vector3(0.04, rng.randf_range(0.38, 0.82), rng.randf_range(0.42, 0.95))
+		var dirt_colors := [Color("5d493c"), Color("414b3f"), Color("70594a"), Color("4e4540")]
+		var dirt := make_cleanup_body("Wall grime" if on_wall else "Floor dirt", pos, size, dirt_colors[i % dirt_colors.size()], 8)
+		if not on_wall:
+			dirt.rotation.y = rng.randf_range(-PI, PI)
 		dirt_spots.append(dirt)
 	for i in room_item_counts[current_level - 1]:
 		var item_spot := random_room_spot(rng)
@@ -1697,6 +1761,7 @@ func make_cleanup_body(body_name: String, position: Vector3, size: Vector3, colo
 			visual.rotation.x = -PI * 0.5
 		var stain_material := ShaderMaterial.new()
 		stain_material.shader = load("res://stain.gdshader")
+		stain_material.set_shader_parameter("stain_color", Vector3(color.r, color.g, color.b))
 		visual.material_override = stain_material
 		visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	body.add_child(visual)
@@ -1750,7 +1815,7 @@ func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
 		return true
 	var body: StaticBody3D = hit["collider"]
 	if cleanup_phase == 1:
-		var scrub: float = float(body.get_meta("scrub",0.0)) + 0.20 + float(mop_skill) * 0.08
+		var scrub: float = float(body.get_meta("scrub",0.0)) + 0.34 + float(mop_skill) * 0.12
 		body.set_meta("scrub", scrub)
 		var stain_visual := body.get_child(0) as MeshInstance3D
 		if stain_visual.material_override is ShaderMaterial:
