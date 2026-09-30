@@ -120,7 +120,7 @@ var cleaned_surfaces := 0
 var organized_items := 0
 var room_dirt_counts := [5, 9, 14, 20, 28]
 var room_item_counts := [3, 5, 8, 12, 17]
-var cleanup_room_names := ["GRAND FOYER", "GUEST ROOM", "DINING HALL", "LIBRARY", "BALLROOM"]
+var cleanup_room_names := ["GRAND FOYER", "GUEST ROOM", "DINING HALL", "LIBRARY", "MANSION"]
 var cleanup_foam_counts := [420, 800, 1400, 2100, 3000]
 var phase_names := ["CLEAR FOAM", "CLEAN SURFACES", "ORGANIZE ROOM"]
 var skill_coin_costs := [20, 60, 140]
@@ -138,6 +138,10 @@ var fallen_asset_paths := [
 ]
 var current_walkable_rects: Array[Rect2] = []
 var blocked_spawn_rects: Array[Rect2] = []
+var secret_shelf_body: StaticBody3D
+var secret_passage_open := false
+var loft_cache_visual: MeshInstance3D
+var loft_cache_claimed := false
 var movement_keys := {KEY_W: false, KEY_A: false, KEY_S: false, KEY_D: false}
 var held_tool_root: Node3D
 var held_tool_body: MeshInstance3D
@@ -1212,7 +1216,7 @@ func start_round(chosen_mode: String) -> void:
 	update_light_switch()
 	build_level_layout()
 	var bounds := level_bounds()
-	player.position = Vector3(0.0, 0.1, bounds.w - 0.9)
+	player.position = Vector3(1.35 if current_level == 2 else 0.0, 0.1, 2.3 if current_level == 5 else bounds.w - 0.9)
 	player.velocity = Vector3.ZERO
 	player.rotation = Vector3.ZERO
 	view.rotation = Vector3.ZERO
@@ -1293,6 +1297,16 @@ func random_room_spot(rng: RandomNumberGenerator) -> Vector2:
 		if current_walkable_rects.is_empty():
 			return Vector2(x, z)
 	return Vector2.ZERO
+
+
+func mansion_task_spot(rng: RandomNumberGenerator, index: int) -> Vector2:
+	var zones := [Rect2(-3.4, -3.4, 6.8, 6.8), Rect2(-3.4, -11.4, 6.8, 6.8), Rect2(-11.4, -11.4, 6.8, 6.8), Rect2(-11.4, -3.4, 6.8, 6.8), Rect2(4.6, -3.4, 6.8, 6.8), Rect2(-4.4, 4.6, 8.8, 6.8)]
+	var zone: Rect2 = zones[index % zones.size()]
+	for attempt in 50:
+		var candidate := Vector2(rng.randf_range(zone.position.x, zone.end.x), rng.randf_range(zone.position.y, zone.end.y))
+		if not point_is_spawn_blocked(candidate):
+			return candidate
+	return zone.get_center()
 
 
 func point_is_spawn_blocked(point: Vector2) -> bool:
@@ -1381,7 +1395,7 @@ func level_bounds() -> Vector4:
 	var bounds := [
 		Vector4(-2.8, 2.8, -3.0, 2.5), Vector4(-4.3, 4.3, -4.0, 3.5),
 		Vector4(-5.8, 5.8, -5.0, 4.8), Vector4(-7.0, 7.0, -6.0, 5.8),
-		Vector4(-8.5, 8.5, -7.0, 6.4)
+		Vector4(-14.0, 12.0, -12.0, 12.0)
 	]
 	return bounds[current_level - 1]
 
@@ -1391,16 +1405,21 @@ func build_level_layout() -> void:
 		child.queue_free()
 	current_walkable_rects.clear()
 	blocked_spawn_rects.clear()
+	secret_shelf_body = null
+	loft_cache_visual = null
+	secret_passage_open = false
+	loft_cache_claimed = false
 	match current_level:
 		1: build_foyer_map()
 		2: build_guest_suite_map()
 		3: build_dining_map()
 		4: build_library_map()
-		_: build_ballroom_map()
+		_: build_mansion_map()
 	var bounds := level_bounds()
 	add_room_clutter(bounds, 7 + current_level * 2)
-	add_daylight_details(bounds)
-	light_switch.position = Vector3(bounds.y - 0.14, 1.35, bounds.w - 0.8)
+	if current_level != 5:
+		add_daylight_details(bounds)
+	light_switch.position = Vector3(3.86, 1.35, 2.7) if current_level == 5 else Vector3(bounds.y - 0.14, 1.35, bounds.w - 0.8)
 	light_switch.rotation.y = -PI * 0.5
 
 
@@ -1458,6 +1477,12 @@ func add_daylight_details(bounds: Vector4) -> void:
 	add_stage_wall(Vector3(0, 2.95, bounds.w), Vector3(1.5, 0.9, 0.18), trim, true)
 	for x in [-0.79, 0.79]:
 		add_stage_wall(Vector3(x, 1.25, bounds.w), Vector3(0.12, 2.5, 0.25), trim)
+	# The framed opening needs a solid door leaf; otherwise the player can step
+	# through the front facade and see the missing floor beyond the room.
+	add_stage_wall(Vector3(0, 1.24, bounds.w - 0.01), Vector3(1.42, 2.42, 0.16), Color("765a42"), true)
+	for y in [0.65, 1.75]:
+		add_stage_wall(Vector3(0, y, bounds.w - 0.11), Vector3(1.18, 0.72, 0.035), Color("8c7055"))
+	add_stage_wall(Vector3(0.52, 1.15, bounds.w - 0.16), Vector3(0.06, 0.18, 0.08), Color("d9bd75"))
 	for side in [-1.0, 1.0]:
 		var wx: float = side * width * 0.29
 		var wz := bounds.z + 0.13
@@ -1520,7 +1545,7 @@ func add_floor_section(rect: Rect2, color: Color) -> void:
 	var floor_visual := MeshInstance3D.new()
 	floor_visual.mesh = floor_mesh
 	floor_visual.position = Vector3(rect.position.x + rect.size.x * 0.5, 0.039, rect.position.y + rect.size.y * 0.5)
-	floor_visual.material_override = wood_material()
+	floor_visual.material_override = make_material(color) if current_level == 5 else wood_material()
 	stage_root.add_child(floor_visual)
 	var floor_body := StaticBody3D.new()
 	floor_body.position = Vector3(rect.position.x + rect.size.x * 0.5, -0.035, rect.position.y + rect.size.y * 0.5)
@@ -1540,6 +1565,10 @@ func build_room_shell(bounds: Vector4, color: Color, back_opening: float = 0.0) 
 	var depth := bounds.w - bounds.z
 	add_stage_wall(Vector3(bounds.x, 1.7, (bounds.z + bounds.w) * 0.5), Vector3(0.18, 3.4, depth), color, true)
 	add_stage_wall(Vector3(bounds.y, 1.7, (bounds.z + bounds.w) * 0.5), Vector3(0.18, 3.4, depth), color, true)
+	# Slightly oversized corner posts hide light leaks where two thin wall boxes meet.
+	for x in [bounds.x, bounds.y]:
+		for z in [bounds.z, bounds.w]:
+			add_stage_wall(Vector3(x, 1.7, z), Vector3(0.28, 3.4, 0.28), color, true)
 	if back_opening <= 0.0:
 		add_stage_wall(Vector3(0.0, 1.7, bounds.z), Vector3(width, 3.4, 0.18), color, true)
 	else:
@@ -1561,6 +1590,14 @@ func build_foyer_map() -> void:
 	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(1.15, 0.055, -0.85), -0.7, 1.1)
 	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(2.15, 0.055, 1.55), 1.2, 0.75)
 	build_foyer_door()
+	# Pass 1: a compact ceremonial entry with two shallow side bays and a
+	# central path. The bays make the first room legible without adding a maze.
+	for x in [-2.32, 2.32]:
+		add_stage_wall(Vector3(x, 1.7, -0.45), Vector3(0.20, 3.4, 0.20), Color("d8bd87"), true)
+		add_stage_wall(Vector3(x, 2.94, -0.45), Vector3(0.62, 0.16, 0.62), Color("eee4cc"))
+	add_stage_wall(Vector3(0, 0.06, -0.2), Vector3(1.6, 0.025, 4.2), Color("af856a"))
+	add_stage_wall(Vector3(0, 2.90, -0.45), Vector3(4.8, 0.18, 0.28), Color("eee4cc"))
+	mansion_room_light(Vector3(0, 2.62, 0.15), Color("f7e6c5"), 0.22)
 	reserve_spawn_area(Vector2(-2.0, 1.25), Vector2(1.2, 1.2))
 	reserve_spawn_area(Vector2(1.65, 0.75), Vector2(1.4, 1.4))
 	reserve_spawn_area(Vector2(0, -2.4), Vector2(2.0, 1.0))
@@ -1586,7 +1623,15 @@ func build_guest_suite_map() -> void:
 	add_floor_section(Rect2(-4.3, -4.0, 8.6, 5.3), Color("497f88"))
 	add_floor_section(Rect2(-1.8, 1.3, 6.1, 2.2), Color("5f9298"))
 	build_room_shell(b, Color("72b0b7"), 1.5)
-	add_stage_wall(Vector3(-1.8, 0.7, 2.35), Vector3(0.18, 1.4, 2.3), Color("72b0b7"), true)
+	# Seal the missing corner of the L-shaped floor all the way to the ceiling.
+	# The old half-height divider exposed the empty space outside the playable room.
+	add_stage_wall(Vector3(-1.8, 1.7, 2.4), Vector3(0.22, 3.4, 2.4), Color("b3beb9"), true)
+	add_stage_wall(Vector3(-1.8, 0.15, 2.4), Vector3(0.10, 0.18, 2.4), Color("eee9dd"))
+	add_stage_wall(Vector3(-1.8, 3.24, 2.4), Vector3(0.10, 0.18, 2.4), Color("eee9dd"))
+	# The front wing becomes a reading nook reached through a clear doorway.
+	mansion_wall_z(1.3, -1.8, 4.3, Color("b3beb9"), 1.35, 1.95)
+	add_stage_wall(Vector3(1.35, 0.07, 1.3), Vector3(2.05, 0.025, 0.42), Color("819b9a"))
+	mansion_room_light(Vector3(1.4, 2.62, 2.55), Color("d5e8e7"), 0.28)
 	place_room_asset(room_asset_paths[1][0], Vector3(-2.35, 0.055, -2.25), PI * 0.5, 1.05)
 	place_room_asset(room_asset_paths[1][1], Vector3(2.65, 0.055, -1.8), -PI * 0.5, 0.95)
 	place_room_asset(room_asset_paths[1][2], Vector3(1.6, 0.055, 2.55), PI, 0.9)
@@ -1600,6 +1645,12 @@ func build_dining_map() -> void:
 	var b := level_bounds()
 	add_floor_section(Rect2(-5.8, -5.0, 11.6, 9.8), Color("78464f"))
 	build_room_shell(b, Color("b06a72"), 2.4)
+	# A narrow service bay changes the long dining hall into a room with a
+	# destination behind the table, while preserving a wide central route.
+	mansion_wall_x(3.45, -4.2, 3.8, Color("b7a394"), 1.35, 1.9)
+	add_stage_wall(Vector3(4.35, 0.055, -1.4), Vector3(1.7, 0.025, 5.6), Color("8d7566"))
+	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(4.75, 0.055, -2.55), 0.3, 0.8)
+	mansion_room_light(Vector3(4.4, 2.62, 0.0), Color("fff0d8"), 0.28)
 	for x in [-4.7, 4.7]:
 		place_room_asset("res://assets/kenney_building/column-wide.glb", Vector3(x, 0.05, -3.7), 0, 1.1)
 	for z in [-2.5, 0.0]:
@@ -1615,6 +1666,16 @@ func build_library_map() -> void:
 	add_floor_section(Rect2(-7.0, -6.0, 14.0, 8.0), Color("3e674f"))
 	add_floor_section(Rect2(-4.8, 2.0, 9.6, 3.8), Color("52795f"))
 	build_room_shell(b, Color("73946d"), 1.8)
+	# Close both recessed corners where the narrow front wing meets the main room.
+	for x in [-4.8, 4.8]:
+		add_stage_wall(Vector3(x, 1.7, 3.9), Vector3(0.22, 3.4, 3.8), Color("a0aba6"), true)
+		add_stage_wall(Vector3(x, 0.15, 3.9), Vector3(0.10, 0.18, 3.8), Color("eee9dd"))
+		add_stage_wall(Vector3(x, 3.24, 3.9), Vector3(0.10, 0.18, 3.8), Color("eee9dd"))
+	# The western shelf corridor rejoins the main floor near the reading annex.
+	mansion_wall_x(-5.0, -4.7, 1.3, Color("89968c"), -3.7, 1.35)
+	mansion_wall_z(2.0, -4.8, 4.8, Color("a0aba6"), 0.0, 2.1)
+	add_stage_wall(Vector3(0, 0.07, 2.0), Vector3(2.2, 0.025, 0.44), Color("6c795f"))
+	mansion_room_light(Vector3(0, 2.62, 3.7), Color("e2edcf"), 0.28)
 	# Keep the library sightline open from the entrance.
 	for x in [-5.9, -3.0, 3.0, 5.9]:
 		place_room_asset(room_asset_paths[3][0], Vector3(x, 0.055, -5.35), 0, 1.0)
@@ -1630,6 +1691,14 @@ func build_ballroom_map() -> void:
 	add_floor_section(Rect2(-6.7, -7.0, 13.4, 1.8), Color("4e3c67"))
 	add_floor_section(Rect2(-6.7, 4.8, 13.4, 1.6), Color("806394"))
 	build_room_shell(b, Color("a17bb0"), 3.0)
+	# The ballroom has narrower front and rear wings. Full-height return walls keep
+	# their four recessed corners watertight and stop foam escaping into the voids.
+	for x in [-6.7, 6.7]:
+		for z in [-6.1, 5.6]:
+			var wall_depth := 1.8 if z < 0.0 else 1.6
+			add_stage_wall(Vector3(x, 1.7, z), Vector3(0.22, 3.4, wall_depth), Color("c4bdac"), true)
+			add_stage_wall(Vector3(x, 0.15, z), Vector3(0.10, 0.18, wall_depth), Color("eee9dd"))
+			add_stage_wall(Vector3(x, 3.24, z), Vector3(0.10, 0.18, wall_depth), Color("eee9dd"))
 	for x in [-7.2, -4.8, 4.8, 7.2]:
 		place_room_asset(room_asset_paths[4][0], Vector3(x, 0.055, -4.3), 0, 1.2)
 	for x in [-5.7, 0.0, 5.7]:
@@ -1642,6 +1711,195 @@ func build_ballroom_map() -> void:
 	reserve_spawn_area(Vector2(6.6, 4.0), Vector2(2.0, 1.6))
 	for x in [-5.7, 0.0, 5.7]:
 		reserve_spawn_area(Vector2(x, 1.8), Vector2(1.8, 1.8))
+
+
+func mansion_wall_z(z: float, from_x: float, to_x: float, color: Color, door_x: float = INF, door_width: float = 1.8) -> void:
+	var thickness := 0.22
+	if is_inf(door_x):
+		add_stage_wall(Vector3((from_x + to_x) * 0.5, 1.7, z), Vector3(to_x - from_x + thickness, 3.4, thickness), color, true)
+		return
+	var left_end := door_x - door_width * 0.5
+	var right_start := door_x + door_width * 0.5
+	if left_end > from_x:
+		mansion_wall_z(z, from_x, left_end, color)
+	if right_start < to_x:
+		mansion_wall_z(z, right_start, to_x, color)
+	add_stage_wall(Vector3(door_x, 2.95, z), Vector3(door_width + thickness, 0.9, thickness), color, true)
+	for x in [left_end, right_start]:
+		add_stage_wall(Vector3(x, 1.25, z), Vector3(0.12, 2.5, 0.32), Color("e9dfca"))
+	add_stage_wall(Vector3(door_x, 2.48, z), Vector3(door_width + 0.25, 0.12, 0.32), Color("e9dfca"))
+
+
+func mansion_wall_x(x: float, from_z: float, to_z: float, color: Color, door_z: float = INF, door_width: float = 1.8) -> void:
+	var thickness := 0.22
+	if is_inf(door_z):
+		add_stage_wall(Vector3(x, 1.7, (from_z + to_z) * 0.5), Vector3(thickness, 3.4, to_z - from_z + thickness), color, true)
+		return
+	var back_end := door_z - door_width * 0.5
+	var front_start := door_z + door_width * 0.5
+	if back_end > from_z:
+		mansion_wall_x(x, from_z, back_end, color)
+	if front_start < to_z:
+		mansion_wall_x(x, front_start, to_z, color)
+	add_stage_wall(Vector3(x, 2.95, door_z), Vector3(thickness, 0.9, door_width + thickness), color, true)
+	for z in [back_end, front_start]:
+		add_stage_wall(Vector3(x, 1.25, z), Vector3(0.32, 2.5, 0.12), Color("e9dfca"))
+	add_stage_wall(Vector3(x, 2.48, door_z), Vector3(0.32, 0.12, door_width + 0.25), Color("e9dfca"))
+
+
+func mansion_room_light(at: Vector3, tint: Color, energy: float) -> void:
+	var lamp := OmniLight3D.new()
+	lamp.position = at
+	lamp.light_color = tint
+	lamp.light_energy = energy
+	lamp.omni_range = 10.0
+	lamp.shadow_enabled = true
+	lamp.set_meta("room_mood_light", true)
+	stage_root.add_child(lamp)
+	add_stage_wall(at + Vector3(0, 0.51, 0), Vector3(0.72, 0.1, 0.72), Color("eee2c9"))
+
+
+func mansion_slope() -> void:
+	# A walkable ramp leads to the optional cache above the library floor.
+	var angle := atan2(1.4, 3.4)
+	var ramp := StaticBody3D.new()
+	ramp.position = Vector3(-9.6, 0.74, -8.2)
+	ramp.rotation.x = angle
+	var mesh := BoxMesh.new()
+	mesh.size = Vector3(1.6, 0.16, 3.65)
+	var visual := MeshInstance3D.new()
+	visual.mesh = mesh
+	visual.material_override = make_material(Color("67513d"))
+	ramp.add_child(visual)
+	var shape := CollisionShape3D.new()
+	var box_shape := BoxShape3D.new()
+	box_shape.size = mesh.size
+	shape.shape = box_shape
+	ramp.add_child(shape)
+	stage_root.add_child(ramp)
+	add_stage_wall(Vector3(-9.6, 1.22, -10.75), Vector3(2.8, 0.16, 2.1), Color("67513d"), true)
+	for x in [-11.1, -8.1]:
+		add_stage_wall(Vector3(x, 1.72, -10.75), Vector3(0.12, 1.0, 2.2), Color("d3bd91"), true)
+	loft_cache_visual = MeshInstance3D.new()
+	var cache_mesh := BoxMesh.new()
+	cache_mesh.size = Vector3(0.44, 0.32, 0.40)
+	loft_cache_visual.mesh = cache_mesh
+	loft_cache_visual.position = Vector3(-9.6, 1.52, -10.8)
+	loft_cache_visual.material_override = make_material(Color("e6bb64"), 0.3)
+	stage_root.add_child(loft_cache_visual)
+
+
+func mansion_secret_shelf() -> void:
+	secret_shelf_body = StaticBody3D.new()
+	secret_shelf_body.name = "HiddenLibraryShelf"
+	secret_shelf_body.position = Vector3(-12, 1.24, -9.6)
+	var shelf_mesh := BoxMesh.new()
+	shelf_mesh.size = Vector3(0.34, 2.48, 1.28)
+	var shelf_visual := MeshInstance3D.new()
+	shelf_visual.mesh = shelf_mesh
+	shelf_visual.material_override = make_material(Color("554635"))
+	secret_shelf_body.add_child(shelf_visual)
+	for y in [-0.7, -0.18, 0.37, 0.91]:
+		var shelf_trim := MeshInstance3D.new()
+		var trim_mesh := BoxMesh.new()
+		trim_mesh.size = Vector3(0.40, 0.06, 1.34)
+		shelf_trim.mesh = trim_mesh
+		shelf_trim.position.y = y
+		shelf_trim.material_override = make_material(Color("a5855d"))
+		secret_shelf_body.add_child(shelf_trim)
+	var collider := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = shelf_mesh.size
+	collider.shape = shape
+	secret_shelf_body.add_child(collider)
+	stage_root.add_child(secret_shelf_body)
+
+
+func mansion_room_sign(label: String, at: Vector3, yaw: float = 0.0) -> void:
+	var sign := Label3D.new()
+	sign.text = label
+	sign.font_size = 72
+	sign.pixel_size = 0.0036
+	sign.modulate = Color("3d342d")
+	sign.position = at
+	sign.rotation.y = yaw
+	stage_root.add_child(sign)
+
+
+func build_mansion_map() -> void:
+	# A central hall links five distinct rooms. The western service passage is
+	# a second route through the library, so the plan has a useful loop.
+	var plaster := Color("b7b6a7")
+	var bedroom := Color("c4b9aa")
+	var library := Color("777d70")
+	var utility := Color("88837a")
+	var dining := Color("a9998b")
+	var living := Color("b6a592")
+	add_floor_section(Rect2(-4, -4, 8, 8), Color("aab0a8"))
+	add_floor_section(Rect2(-4, -12, 8, 8), Color("aa9176"))
+	add_floor_section(Rect2(-12, -12, 8, 8), Color("604e40"))
+	add_floor_section(Rect2(-12, -4, 8, 8), Color("777875"))
+	add_floor_section(Rect2(4, -4, 8, 8), Color("a58a74"))
+	add_floor_section(Rect2(-5, 4, 10, 8), Color("9c7755"))
+	add_floor_section(Rect2(-14, -12, 2, 10), Color("595a58"))
+	# The floor blocks touch, but the foam-safe rectangles normally shrink by
+	# 0.28m. Bridge each doorway so a bead can cross without hitting a fake seam.
+	for connector in [Rect2(-0.95, -4.42, 1.9, 0.84), Rect2(-4.42, -0.95, 0.84, 1.9), Rect2(3.58, -0.95, 0.84, 1.9), Rect2(-1.0, 3.58, 2.0, 0.84), Rect2(-8.85, -4.42, 1.7, 0.84), Rect2(-4.42, -8.55, 0.84, 1.1), Rect2(-12.42, -10.1, 0.84, 1.0), Rect2(-12.42, -3.5, 0.84, 1.0)]:
+		current_walkable_rects.append(connector)
+	# Exterior follows the actual footprint, including its recessed corners.
+	mansion_wall_z(-12, -14, 4, plaster)
+	mansion_wall_x(-14, -12, -2, utility)
+	mansion_wall_z(-2, -14, -12, utility)
+	mansion_wall_x(-12, -2, 4, utility)
+	mansion_wall_z(4, -12, -5, utility)
+	mansion_wall_x(4, -12, -4, bedroom)
+	mansion_wall_z(-4, 4, 12, dining)
+	mansion_wall_x(12, -4, 4, dining)
+	mansion_wall_z(4, 5, 12, dining)
+	mansion_wall_x(-5, 4, 12, living)
+	mansion_wall_x(5, 4, 12, living)
+	mansion_wall_z(12, -5, 5, living)
+	mansion_wall_z(4, -5, -4, living)
+	mansion_wall_z(4, 4, 5, living)
+	# Doorways stay wide enough for the player and foam. The library has both
+	# a public approach and a concealed connection behind its bookcases.
+	mansion_wall_z(-4, -4, 4, bedroom, 0.0, 2.3)
+	mansion_wall_x(-4, -4, 4, plaster, 0.0, 2.3)
+	mansion_wall_x(4, -4, 4, dining, 0.0, 2.3)
+	mansion_wall_z(4, -4, 4, living, 0.0, 2.5)
+	mansion_wall_z(-4, -12, -4, utility, -8.0, 1.9)
+	mansion_wall_x(-4, -12, -4, library, -8.0, 1.4)
+	mansion_wall_x(-12, -12, -4, library, -9.6, 1.3)
+	mansion_wall_x(-12, -4, -2, utility, -3.0, 1.25)
+	# Room ceilings exactly match their floor blocks: no open corners or sky gaps.
+	for rect in [Rect2(-4, -4, 8, 8), Rect2(-4, -12, 8, 8), Rect2(-12, -12, 8, 8), Rect2(-12, -4, 8, 8), Rect2(4, -4, 8, 8), Rect2(-5, 4, 10, 8), Rect2(-14, -12, 2, 10)]:
+		add_stage_wall(Vector3(rect.get_center().x, 3.44, rect.get_center().y), Vector3(rect.size.x + 0.04, 0.12, rect.size.y + 0.04), Color("e7dfcf"))
+	for point in [Vector3(0, 2.65, 0), Vector3(0, 2.65, -8), Vector3(-8, 2.65, -8), Vector3(-8, 2.65, 0), Vector3(8, 2.65, 0), Vector3(0, 2.65, 8)]:
+		mansion_room_light(point, Color("ffecd0"), 0.30)
+	mansion_room_light(Vector3(-13, 2.65, -7), Color("d2e2e8"), 0.22)
+	mansion_slope()
+	mansion_secret_shelf()
+	mansion_room_sign("BEDROOM", Vector3(0, 2.67, -3.84))
+	mansion_room_sign("STORAGE", Vector3(-3.84, 2.67, 0), PI * 0.5)
+	mansion_room_sign("DINING", Vector3(3.84, 2.67, 0), -PI * 0.5)
+	mansion_room_sign("LOUNGE", Vector3(0, 2.67, 3.84), PI)
+	mansion_room_sign("LIBRARY", Vector3(-8, 2.67, -3.84))
+	# Material transitions and silhouettes identify each destination from the hall.
+	add_stage_wall(Vector3(0, 0.08, -3.75), Vector3(2.4, 0.08, 0.44), Color("a78b70"))
+	add_stage_wall(Vector3(-3.75, 0.08, 0), Vector3(0.44, 0.08, 2.4), Color("777875"))
+	add_stage_wall(Vector3(3.75, 0.08, 0), Vector3(0.44, 0.08, 2.4), Color("a58a74"))
+	add_stage_wall(Vector3(0, 0.08, 3.75), Vector3(2.6, 0.08, 0.44), Color("9c7755"))
+	place_room_asset(room_asset_paths[1][0], Vector3(0, 0.055, -9.3), PI, 1.0)
+	place_room_asset(room_asset_paths[3][0], Vector3(-6.0, 0.055, -11.2), 0, 0.9)
+	place_room_asset(room_asset_paths[3][0], Vector3(-5.2, 0.055, -6.1), PI * 0.5, 0.9)
+	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(-8.0, 0.055, 1.8), 0.5, 0.8)
+	place_room_asset(room_asset_paths[2][0], Vector3(8.0, 0.055, 0.0), 0, 1.0)
+	place_room_asset(room_asset_paths[4][2], Vector3(0, 0.055, 9.2), PI, 1.0)
+	place_room_asset(room_asset_paths[0][1], Vector3(-2.7, 0.055, 1.0), 0, 0.9)
+	reserve_spawn_area(Vector2(0, 2.3), Vector2(2.6, 2.2))
+	for doorway in [Vector2(0, -4), Vector2(-4, 0), Vector2(4, 0), Vector2(0, 4), Vector2(-8, -4), Vector2(-4, -8), Vector2(-12, -9.6), Vector2(-12, -3)]:
+		reserve_spawn_area(doorway, Vector2(2.4, 2.4))
+	reserve_spawn_area(Vector2(-9.6, -8.2), Vector2(2.3, 5.0))
 
 
 func place_room_asset(path: String, position: Vector3, yaw: float = 0.0, uniform_scale: float = 1.0, parent: Node3D = stage_root) -> Node3D:
@@ -1698,7 +1956,7 @@ func build_cleanup_tasks(rng: RandomNumberGenerator) -> void:
 	var bounds := level_bounds()
 	for i in room_dirt_counts[current_level - 1]:
 		var on_wall: bool = i % 2 == 1
-		var floor_spot := random_room_spot(rng)
+		var floor_spot := mansion_task_spot(rng, i) if current_level == 5 else random_room_spot(rng)
 		var pos := Vector3(floor_spot.x, 0.065, floor_spot.y)
 		var width := rng.randf_range(0.45, 1.05)
 		var depth := rng.randf_range(0.38, 0.92)
@@ -1706,6 +1964,10 @@ func build_cleanup_tasks(rng: RandomNumberGenerator) -> void:
 		if on_wall:
 			var wall_x := bounds.x + 0.11 if i % 4 == 1 else bounds.y - 0.11
 			pos = Vector3(wall_x, rng.randf_range(0.7, 2.2), rng.randf_range(bounds.z + 0.8, bounds.w - 0.8))
+			if current_level == 5:
+				var wall_sites := [Vector2(-13.88, -7.0), Vector2(-11.88, 1.3), Vector2(11.88, 0.4), Vector2(4.12, -8.0), Vector2(-4.12, -8.0), Vector2(-4.88, 8.0)]
+				var site: Vector2 = wall_sites[i % wall_sites.size()]
+				pos = Vector3(site.x, rng.randf_range(0.75, 2.2), site.y + rng.randf_range(-0.45, 0.45))
 			size = Vector3(0.04, rng.randf_range(0.38, 0.82), rng.randf_range(0.42, 0.95))
 		var dirt_colors := [Color("5d493c"), Color("414b3f"), Color("70594a"), Color("4e4540")]
 		var dirt := make_cleanup_body("Wall grime" if on_wall else "Floor dirt", pos, size, dirt_colors[i % dirt_colors.size()], 8)
@@ -1713,10 +1975,10 @@ func build_cleanup_tasks(rng: RandomNumberGenerator) -> void:
 			dirt.rotation.y = rng.randf_range(-PI, PI)
 		dirt_spots.append(dirt)
 	for i in room_item_counts[current_level - 1]:
-		var item_spot := random_room_spot(rng)
+		var item_spot := mansion_task_spot(rng, i) if current_level == 5 else random_room_spot(rng)
 		var pos2 := Vector3(item_spot.x, 0.055, item_spot.y)
 		var item := make_asset_cleanup_body(pos2, fallen_asset_paths[i % fallen_asset_paths.size()])
-		var target_spot := random_room_spot(rng)
+		var target_spot := mansion_task_spot(rng, i + 3) if current_level == 5 else random_room_spot(rng)
 		var target := Vector3(target_spot.x, 0.055, target_spot.y)
 		item.set_meta("target", target)
 		misplaced_items.append(item)
@@ -2077,6 +2339,15 @@ func set_crouching(enabled: bool) -> void:
 
 
 func update_switch_prompt() -> void:
+	if current_level == 5 and playing and not game_paused:
+		if not loft_cache_claimed and player.position.y > 0.75 and Vector2(player.position.x, player.position.z).distance_to(Vector2(-9.6, -10.8)) < 1.5:
+			hint.text = "E: COLLECT LOFT CACHE"
+			hint_panel.visible = true
+			return
+		if not secret_passage_open and Vector2(player.position.x, player.position.z).distance_to(Vector2(-12, -9.6)) < 1.7:
+			hint.text = "E: SHIFT BOOKCASE"
+			hint_panel.visible = true
+			return
 	var origin := view.global_position
 	var direction := -view.global_basis.z
 	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * 3.2)
@@ -2084,6 +2355,28 @@ func update_switch_prompt() -> void:
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	hint.text = "E / CLICK: FLIP LIGHT SWITCH" if not hit.is_empty() and hit["collider"] == light_switch else message
 	hint_panel.visible = not hint.text.is_empty()
+
+
+func interact_mansion_feature() -> bool:
+	if current_level != 5 or not playing or game_paused:
+		return false
+	var spot := Vector2(player.position.x, player.position.z)
+	if not loft_cache_claimed and player.position.y > 0.75 and spot.distance_to(Vector2(-9.6, -10.8)) < 1.5:
+		loft_cache_claimed = true
+		coins += 120
+		if is_instance_valid(loft_cache_visual):
+			loft_cache_visual.visible = false
+		message = "Hidden loft cache found: +$120."
+		update_ui()
+		return true
+	if not secret_passage_open and spot.distance_to(Vector2(-12, -9.6)) < 1.7:
+		secret_passage_open = true
+		if is_instance_valid(secret_shelf_body):
+			secret_shelf_body.position.z -= 1.6
+		message = "The bookcase slides aside. A service passage connects the rooms."
+		update_ui()
+		return true
+	return false
 
 
 func update_cleanup_automation(delta: float) -> void:
@@ -2268,7 +2561,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif event.keycode == KEY_3 and playing and owns_blower:
 			select_tool(2)
 		elif event.keycode == KEY_E and playing:
-			search_center()
+			if not interact_mansion_feature():
+				search_center()
 	if event is InputEventMouseMotion and mouse_captured:
 		player.rotate_y(-event.relative.x * LOOK_SPEED)
 		view.rotation.x = clampf(view.rotation.x - event.relative.y * LOOK_SPEED, -1.45, 1.45)
