@@ -110,7 +110,7 @@ var organized_items := 0
 var room_dirt_counts := [2, 3, 4, 5, 7]
 var room_item_counts := [2, 3, 4, 5, 7]
 var cleanup_room_names := ["GRAND FOYER", "GUEST ROOM", "DINING HALL", "LIBRARY", "BALLROOM"]
-var cleanup_foam_counts := [3600, 6500, 11000, 17000, 25000]
+var cleanup_foam_counts := [420, 800, 1400, 2100, 3000]
 var phase_names := ["CLEAR FOAM", "CLEAN SURFACES", "ORGANIZE ROOM"]
 var skill_coin_costs := [0, 40, 90]
 var room_asset_paths := [
@@ -131,7 +131,10 @@ var movement_keys := {KEY_W: false, KEY_A: false, KEY_S: false, KEY_D: false}
 var held_tool_root: Node3D
 var held_tool_body: MeshInstance3D
 var held_tool_nozzle: MeshInstance3D
+var mop_model: Node3D
+var foam_shadows: MultiMesh
 var tool_bob_time := 0.0
+var hand_cooldown := 0.0
 
 
 func _ready() -> void:
@@ -146,6 +149,7 @@ func make_material(color: Color, roughness: float = 0.9) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
 	material.roughness = roughness
+	material.metallic_specular = 0.12
 	return material
 
 
@@ -213,12 +217,12 @@ func make_house() -> void:
 	var env_node := WorldEnvironment.new()
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color("090d16")
+	env.background_color = Color("b5cbd7")
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color("58627c")
-	env.ambient_light_energy = 0.10
+	env.ambient_light_color = Color("e5e4d6")
+	env.ambient_light_energy = 0.36
 	env.glow_enabled = true
-	env.fog_enabled = true
+	env.fog_enabled = false
 	env.fog_light_color = Color("30384d")
 	env.fog_light_energy = 0.35
 	env.fog_density = 0.018
@@ -226,13 +230,14 @@ func make_house() -> void:
 	add_child(env_node)
 	var sunlight := DirectionalLight3D.new()
 	sunlight.rotation_degrees = Vector3(-55.0, -35.0, 0.0)
-	sunlight.light_energy = 0.32
+	sunlight.light_energy = 0.48
 	sunlight.shadow_enabled = true
 	add_child(sunlight)
 	room_light = OmniLight3D.new()
-	room_light.position = Vector3(0.0, 3.3, -1.0)
-	room_light.light_energy = 0.85
+	room_light.position = Vector3(0.0, 2.85, -1.0)
+	room_light.light_energy = 0.285
 	room_light.omni_range = 19.0
+	room_light.shadow_enabled = true
 	add_child(room_light)
 	var grass := make_material(Color("6aa987"))
 	box("Yard", Vector3(0.0, -0.22, 7.0), Vector3(38.0, 0.4, 32.0), grass)
@@ -308,6 +313,7 @@ func make_player() -> void:
 	uv_flashlight.visible = false
 	view.add_child(uv_flashlight)
 	make_held_tool()
+	make_mop()
 	add_child(player)
 
 
@@ -375,6 +381,38 @@ func make_held_tool() -> void:
 	held_tool_root.add_child(lens)
 
 
+func make_mop() -> void:
+	mop_model = Node3D.new()
+	held_tool_root.add_child(mop_model)
+	mop_model.visible = false
+	var shaft := MeshInstance3D.new()
+	var cylinder := CylinderMesh.new()
+	cylinder.top_radius = 0.018
+	cylinder.bottom_radius = 0.018
+	cylinder.height = 1.25
+	cylinder.radial_segments = 10
+	shaft.mesh = cylinder
+	shaft.rotation.x = 0.9
+	shaft.position = Vector3(-0.16,-0.10,-0.35)
+	shaft.material_override = make_material(Color("91a8a7"),0.4)
+	mop_model.add_child(shaft)
+	var head := MeshInstance3D.new()
+	var head_box := BoxMesh.new()
+	head_box.size = Vector3(0.48,0.07,0.20)
+	head.mesh = head_box
+	head.position = Vector3(-0.16,-0.49,-0.84)
+	head.material_override = make_material(Color("597d7d"))
+	mop_model.add_child(head)
+	for strand in 12:
+		var cloth := MeshInstance3D.new()
+		var cloth_box := BoxMesh.new()
+		cloth_box.size = Vector3(0.032,0.065,0.25)
+		cloth.mesh = cloth_box
+		cloth.position = Vector3(-0.37+strand*0.038,-0.54,-0.85)
+		cloth.material_override = make_material(Color("d7d3b9"))
+		mop_model.add_child(cloth)
+
+
 func make_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
@@ -382,30 +420,16 @@ func make_ui() -> void:
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(root)
-	var survival := HBoxContainer.new()
-	survival.position = Vector2(18.0, 16.0)
-	survival.add_theme_constant_override("separation", 8)
-	survival.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(survival)
-	var heart := Label.new()
-	heart.text = "♥"
-	heart.add_theme_font_size_override("font_size", 25)
-	heart.add_theme_color_override("font_color", Color("e94b55"))
-	survival.add_child(heart)
-	var health := ProgressBar.new()
-	health.custom_minimum_size = Vector2(170.0, 22.0)
-	health.value = 100.0
-	health.show_percentage = false
-	health.add_theme_stylebox_override("background", ui_panel_style(Color("171a24"), Color("05070c")))
-	health.add_theme_stylebox_override("fill", ui_panel_style(Color("bd303d"), Color("ef5a60")))
-	survival.add_child(health)
 	hud_panel = PanelContainer.new()
-	hud_panel.position = Vector2(16.0, 54.0)
+	hud_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	hud_panel.offset_left = -292.0
+	hud_panel.offset_right = -20.0
+	hud_panel.offset_top = 210.0
 	hud_panel.add_theme_stylebox_override("panel", ui_panel_style(Color(0.06, 0.10, 0.14, 0.82), Color(0.37, 0.52, 0.58, 0.45)))
 	hud_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(hud_panel)
 	hud = Label.new()
-	hud.add_theme_font_size_override("font_size", 18)
+	hud.add_theme_font_size_override("font_size", 16)
 	hud.add_theme_color_override("font_color", Color("f1f5ec"))
 	hud_panel.add_child(hud)
 	hint_panel = PanelContainer.new()
@@ -453,36 +477,14 @@ func make_ui() -> void:
 	uv_marker.add_theme_font_size_override("font_size", 38)
 	uv_marker.add_theme_color_override("font_color", Color("d874ff"))
 	root.add_child(uv_marker)
-	var bag_slot := PanelContainer.new()
-	bag_slot.anchor_top = 1.0
-	bag_slot.anchor_bottom = 1.0
-	bag_slot.offset_left = 18.0
-	bag_slot.offset_right = 78.0
-	bag_slot.offset_top = -82.0
-	bag_slot.offset_bottom = -22.0
-	bag_slot.add_theme_stylebox_override("panel", survival_slot_style(Color("d2a95d")))
-	bag_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(bag_slot)
-	var bag_icon := TextureRect.new()
-	bag_icon.texture = load("res://icon_hand.svg")
-	bag_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	bag_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	bag_slot.add_child(bag_icon)
-	var objective_slot := PanelContainer.new()
-	objective_slot.anchor_left = 1.0
-	objective_slot.anchor_right = 1.0
-	objective_slot.offset_left = -78.0
-	objective_slot.offset_right = -18.0
-	objective_slot.offset_top = 18.0
-	objective_slot.offset_bottom = 78.0
-	objective_slot.add_theme_stylebox_override("panel", survival_slot_style(Color("8b7352")))
-	objective_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(objective_slot)
-	var pearl_icon := TextureRect.new()
-	pearl_icon.texture = load("res://icon_uv.svg")
-	pearl_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	pearl_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	objective_slot.add_child(pearl_icon)
+	var plan := Control.new()
+	plan.set_script(load("res://room_plan.gd"))
+	plan.set("game", self)
+	plan.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	plan.position = Vector2(-200, 18)
+	plan.size = Vector2(180, 180)
+	plan.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(plan)
 	menu_panel = PanelContainer.new()
 	menu_panel.anchor_left = 0.5
 	menu_panel.anchor_right = 0.5
@@ -505,13 +507,13 @@ func make_ui() -> void:
 	eyebrow.add_theme_color_override("font_color", Color("71d4cf"))
 	menu.add_child(eyebrow)
 	var title := Label.new()
-	title.text = "PEARL & FOAM"
+	title.text = "HOUSE / RESET"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.add_theme_font_size_override("font_size", 43)
 	title.add_theme_color_override("font_color", Color("fff3cc"))
 	menu.add_child(title)
 	var subtitle := Label.new()
-	subtitle.text = "One lost pearl. Five ruined rooms. A mansion buried in foam."
+	subtitle.text = "Five forgotten rooms. Clean, restore, and make a fresh start."
 	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	subtitle.add_theme_font_size_override("font_size", 18)
 	subtitle.add_theme_color_override("font_color", Color("a8c9c7"))
@@ -520,7 +522,7 @@ func make_ui() -> void:
 	loop_card.add_theme_stylebox_override("panel", ui_panel_style(Color(0.07, 0.14, 0.18, 0.88), Color(0.3, 0.55, 0.58, 0.5)))
 	menu.add_child(loop_card)
 	var controls := Label.new()
-	controls.text = "① CLEAR FOAM     ② CLEAN SURFACES     ③ RESTORE THE ROOM\nEarn coins • Build your skill tree • Unlock better tools"
+	controls.text = "1. CLEAR FOAM     2. CLEAN SURFACES     3. RESTORE THE ROOM\nEarn coins • Build your skill tree • Unlock better tools"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 16)
 	controls.add_theme_color_override("font_color", Color("c7d8d7"))
@@ -1093,6 +1095,9 @@ func start_round(chosen_mode: String) -> void:
 	game_paused = false
 	pause_panel.visible = false
 	cheat_panel.visible = false
+	level_select_panel.visible = false
+	skill_panel.visible = false
+	for key in movement_keys: movement_keys[key] = false
 	pearl_sold = false
 	current_foam_count = cleanup_foam_counts[current_level - 1]
 	found = 0
@@ -1115,7 +1120,8 @@ func start_round(chosen_mode: String) -> void:
 	update_light_switch()
 	build_level_layout()
 	var bounds := level_bounds()
-	player.position = Vector3(0.0, 0.1, minf(6.0, bounds.w + 1.2))
+	player.position = Vector3(0.0, 0.1, bounds.w - 0.9)
+	player.velocity = Vector3.ZERO
 	player.rotation = Vector3.ZERO
 	view.rotation = Vector3.ZERO
 	var rng := RandomNumberGenerator.new()
@@ -1129,8 +1135,8 @@ func start_round(chosen_mode: String) -> void:
 		if not foam_stack_columns.has(stack_key):
 			foam_stack_columns[stack_key] = []
 		var height := FOAM_BASE_Y + float(foam_stack_columns[stack_key].size()) * FOAM_DIAMETER
-		x = (float(stack_key.x) + 0.5) * FOAM_DIAMETER
-		z = (float(stack_key.y) + 0.5) * FOAM_DIAMETER
+		x = spot.x
+		z = spot.y
 		foam_positions.append(Vector3(x, height, z))
 		foam_rest_heights.append(height)
 		foam_stack_keys.append(stack_key)
@@ -1180,8 +1186,8 @@ func apply_level_theme() -> void:
 	var theme_index := (current_level - 1) % palettes.size()
 	for i in foam_materials.size():
 		foam_materials[i].albedo_color = palettes[theme_index][i]
-	room_light.light_color = [Color("c7d7ff"), Color("b5d8e8"), Color("c7b3ff")][theme_index]
-	room_light.light_energy = maxf(0.55, 0.90 - float(current_level - 1) * 0.06)
+	room_light.light_color = Color("eef1ed")
+	room_light.light_energy = 0.28
 
 
 func random_room_spot(rng: RandomNumberGenerator) -> Vector2:
@@ -1230,7 +1236,7 @@ func build_level_layout() -> void:
 		_: build_ballroom_map()
 	var bounds := level_bounds()
 	add_room_clutter(bounds, 7 + current_level * 2)
-	add_room_mood_lights(bounds)
+	add_daylight_details(bounds)
 	light_switch.position = Vector3(bounds.y - 0.14, 1.35, bounds.w - 0.8)
 	light_switch.rotation.y = -PI * 0.5
 
@@ -1257,23 +1263,91 @@ func add_room_clutter(bounds: Vector4, count: int) -> void:
 		reserve_spawn_area(Vector2(x, z), Vector2(0.66, 0.66) * scale_value)
 
 
-func add_room_mood_lights(bounds: Vector4) -> void:
-	var violet := OmniLight3D.new()
-	violet.position = Vector3(bounds.x * 0.45, 0.75, bounds.z * 0.45)
-	violet.light_color = Color("7b3dff")
-	violet.light_energy = 2.2
-	violet.omni_range = 4.8
-	violet.shadow_enabled = false
-	violet.set_meta("room_mood_light", true)
-	stage_root.add_child(violet)
-	var cyan := OmniLight3D.new()
-	cyan.position = Vector3(bounds.y * 0.38, 0.55, bounds.w * 0.25)
-	cyan.light_color = Color("39c9ff")
-	cyan.light_energy = 1.5
-	cyan.omni_range = 3.6
-	cyan.shadow_enabled = false
-	cyan.set_meta("room_mood_light", true)
-	stage_root.add_child(cyan)
+func add_daylight_details(bounds: Vector4) -> void:
+	var width := bounds.y - bounds.x
+	var depth := bounds.w - bounds.z
+	var trim := Color("eee9dd")
+	# Crown and skirting ground the room at human scale.
+	for y in [0.15, 3.24]:
+		for x in [bounds.x + 0.12, bounds.y - 0.12]:
+			add_stage_wall(Vector3(x, y, (bounds.z + bounds.w) / 2), Vector3(0.08, 0.18, depth), trim)
+		add_stage_wall(Vector3(0, y, bounds.z + 0.12), Vector3(width, 0.18, 0.08), trim)
+	# Front wall has an actual entry, plus daylight windows facing the garden.
+	var side_width := (width - 1.5) / 2
+	for sign_value in [-1.0, 1.0]:
+		var x: float = sign_value * (0.75 + side_width / 2)
+		add_stage_wall(Vector3(x, 0.48, bounds.w), Vector3(side_width, 0.96, 0.18), Color("b8b7a6"), true)
+		add_stage_wall(Vector3(x, 3.02, bounds.w), Vector3(side_width, 0.76, 0.18), Color("b8b7a6"), true)
+		for edge in [-1.0, 1.0]:
+			add_stage_wall(Vector3(x + edge * (side_width / 2 - 0.07), 1.8, bounds.w), Vector3(0.14, 1.7, 0.26), trim, true)
+		for y in [0.99, 1.8, 2.61]:
+			add_stage_wall(Vector3(x, y, bounds.w), Vector3(side_width, 0.07, 0.28), trim)
+		add_stage_wall(Vector3(x, 1.8, bounds.w), Vector3(0.065, 1.7, 0.28), trim)
+		# Invisible pane collision prevents walking through a window.
+		var pane := StaticBody3D.new()
+		pane.position = Vector3(x, 1.8, bounds.w)
+		var shape := CollisionShape3D.new()
+		var pane_box := BoxShape3D.new()
+		pane_box.size = Vector3(side_width, 1.7, 0.08)
+		shape.shape = pane_box
+		pane.add_child(shape)
+		stage_root.add_child(pane)
+	add_stage_wall(Vector3(0, 2.95, bounds.w), Vector3(1.5, 0.9, 0.18), trim, true)
+	for x in [-0.79, 0.79]:
+		add_stage_wall(Vector3(x, 1.25, bounds.w), Vector3(0.12, 2.5, 0.25), trim)
+	for side in [-1.0, 1.0]:
+		var wx: float = side * width * 0.29
+		var wz := bounds.z + 0.13
+		add_stage_wall(Vector3(wx, 1.95, wz), Vector3(1.48, 1.58, 0.10), Color("ebe6d9"))
+		add_stage_wall(Vector3(wx, 1.95, wz + 0.06), Vector3(1.28, 1.37, 0.025), Color("729ba3"))
+		add_stage_wall(Vector3(wx, 2.16, wz + 0.078), Vector3(1.25, 0.89, 0.018), Color("9ebcc3"))
+		add_stage_wall(Vector3(wx, 1.57, wz + 0.080), Vector3(1.25, 0.40, 0.018), Color("6b8060"))
+		for tree_index in 3:
+			add_stage_wall(Vector3(wx - 0.43 + tree_index * 0.41, 1.72, wz + 0.092), Vector3(0.17, 0.44 + tree_index * 0.09, 0.012), Color("536f59"))
+		for offset in [-0.69, 0.0, 0.69]:
+			add_stage_wall(Vector3(wx + offset, 1.95, wz + 0.09), Vector3(0.05, 1.50, 0.06), trim)
+		add_stage_wall(Vector3(wx, 1.95, wz + 0.1), Vector3(1.42, 0.045, 0.06), trim)
+		add_stage_wall(Vector3(wx, 1.16, wz + 0.12), Vector3(1.65, 0.08, 0.30), trim)
+		for rib in 12:
+			add_stage_wall(Vector3(wx - 0.55 + rib * 0.1, 0.57, wz + 0.11), Vector3(0.075, 0.6, 0.16), Color("dedcd2"))
+		# Curtains frame each window with restrained fabric folds.
+		for edge in [-1.0, 1.0]:
+			for fold in 4:
+				add_stage_wall(Vector3(wx + edge * (0.81 + fold * 0.065), 1.92, wz + 0.18 + (fold % 2) * 0.035), Vector3(0.09, 1.90, 0.08), Color("737f7c"))
+	var art_z := (bounds.z + bounds.w) * 0.5
+	add_stage_wall(Vector3(bounds.x + 0.13, 1.96, art_z), Vector3(0.10, 0.94, 1.20), Color("544437"))
+	add_stage_wall(Vector3(bounds.x + 0.19, 1.96, art_z), Vector3(0.025, 0.80, 1.05), Color("d2c4a6"))
+	add_stage_wall(Vector3(bounds.x + 0.21, 1.84, art_z), Vector3(0.015, 0.32, 0.87), Color("697e78"))
+	place_room_asset("res://assets/kenney_furniture/lampSquareFloor.glb", Vector3(bounds.x + 0.65, 0.055, bounds.z + 0.9), 0, 1)
+	if current_level != 1:
+		for shelf_y in [1.5, 2.08]:
+			add_stage_wall(Vector3(0, shelf_y, bounds.z + 0.24), Vector3(1.65, 0.065, 0.40), Color("68533e"))
+			for book in 9:
+				add_stage_wall(Vector3(-0.67 + book * 0.15, shelf_y + 0.19, bounds.z + 0.22), Vector3(0.10, 0.25 + (book % 3) * 0.04, 0.23), [Color("824d3b"),Color("576b65"),Color("ad986a")][book % 3])
+	if current_level == 4:
+		for shelf_x in [-5.9, -3.0, 3.0, 5.9]:
+			for shelf_y in [0.24, 0.73, 1.21, 1.69]:
+				for book in 5:
+					add_stage_wall(Vector3(shelf_x - 0.28 + book * 0.14, shelf_y + 0.14, -5.34), Vector3(0.10, 0.24 + (book % 3) * 0.045, 0.26), [Color("824d3b"),Color("576b65"),Color("ad986a")][book % 3])
+	add_stage_wall(Vector3(0,3.30,-1), Vector3(0.65,0.14,0.65), Color("ddd8c8"))
+	add_stage_wall(Vector3(0,3.21,-1), Vector3(0.53,0.045,0.53), Color("f4ebca"))
+	# Ceiling follows each floor section so the L-shaped suite remains L-shaped.
+	for rect in current_walkable_rects:
+		var center := rect.get_center()
+		add_stage_wall(Vector3(center.x, 3.43, center.y), Vector3(rect.size.x + 0.56, 0.08, rect.size.y + 0.56), Color("eeeadd"))
+	var daylight := OmniLight3D.new()
+	daylight.position = Vector3(0, 2.7, bounds.w - 0.9)
+	daylight.light_color = Color("eaf1f5")
+	daylight.light_energy = 0.30
+	daylight.omni_range = depth * 1.3
+	daylight.shadow_enabled = true
+	stage_root.add_child(daylight)
+
+
+func wood_material() -> ShaderMaterial:
+	var material := ShaderMaterial.new()
+	material.shader = load("res://wood_floor.gdshader")
+	return material
 
 
 func add_floor_section(rect: Rect2, color: Color) -> void:
@@ -1283,7 +1357,7 @@ func add_floor_section(rect: Rect2, color: Color) -> void:
 	var floor_visual := MeshInstance3D.new()
 	floor_visual.mesh = floor_mesh
 	floor_visual.position = Vector3(rect.position.x + rect.size.x * 0.5, 0.039, rect.position.y + rect.size.y * 0.5)
-	floor_visual.material_override = make_material(color)
+	floor_visual.material_override = wood_material()
 	stage_root.add_child(floor_visual)
 	var floor_body := StaticBody3D.new()
 	floor_body.position = Vector3(rect.position.x + rect.size.x * 0.5, -0.035, rect.position.y + rect.size.y * 0.5)
@@ -1296,6 +1370,9 @@ func add_floor_section(rect: Rect2, color: Color) -> void:
 
 
 func build_room_shell(bounds: Vector4, color: Color, back_opening: float = 0.0) -> void:
+	color = [Color("b8b7a6"), Color("b3beb9"), Color("c3b4a0"), Color("a0aba6"), Color("c4bdac")][current_level - 1]
+	if current_level != 1:
+		back_opening = 0.0
 	var width := bounds.y - bounds.x
 	var depth := bounds.w - bounds.z
 	add_stage_wall(Vector3(bounds.x, 1.7, (bounds.z + bounds.w) * 0.5), Vector3(0.18, 3.4, depth), color, true)
@@ -1303,6 +1380,7 @@ func build_room_shell(bounds: Vector4, color: Color, back_opening: float = 0.0) 
 	if back_opening <= 0.0:
 		add_stage_wall(Vector3(0.0, 1.7, bounds.z), Vector3(width, 3.4, 0.18), color, true)
 	else:
+		add_stage_wall(Vector3(0, 2.90, bounds.z), Vector3(back_opening, 1.0, 0.18), color, true)
 		var side_width := (width - back_opening) * 0.5
 		add_stage_wall(Vector3(bounds.x + side_width * 0.5, 1.7, bounds.z), Vector3(side_width, 3.4, 0.18), color, true)
 		add_stage_wall(Vector3(bounds.y - side_width * 0.5, 1.7, bounds.z), Vector3(side_width, 3.4, 0.18), color, true)
@@ -1361,7 +1439,7 @@ func build_dining_map() -> void:
 	build_room_shell(b, Color("b06a72"), 2.4)
 	for x in [-4.7, 4.7]:
 		place_room_asset("res://assets/kenney_building/column-wide.glb", Vector3(x, 0.05, -3.7), 0, 1.1)
-	for z in [-2.5, 0.0, 2.5]:
+	for z in [-2.5, 0.0]:
 		place_room_asset(room_asset_paths[2][0], Vector3(0.0, 0.055, z), 0, 1.0)
 		place_room_asset(room_asset_paths[2][1], Vector3(-2.0, 0.055, z), PI * 0.5, 0.9)
 		place_room_asset(room_asset_paths[2][1], Vector3(2.0, 0.055, z), -PI * 0.5, 0.9)
@@ -1374,10 +1452,10 @@ func build_library_map() -> void:
 	add_floor_section(Rect2(-7.0, -6.0, 14.0, 8.0), Color("3e674f"))
 	add_floor_section(Rect2(-4.8, 2.0, 9.6, 3.8), Color("52795f"))
 	build_room_shell(b, Color("73946d"), 1.8)
-	add_stage_wall(Vector3(0, 0.7, 2.0), Vector3(4.0, 1.4, 0.16), Color("73946d"), true)
+	# Keep the library sightline open from the entrance.
 	for x in [-5.9, -3.0, 3.0, 5.9]:
 		place_room_asset(room_asset_paths[3][0], Vector3(x, 0.055, -5.35), 0, 1.0)
-	place_room_asset(room_asset_paths[3][3], Vector3(0, 0.055, 3.8), PI, 1.05)
+	place_room_asset(room_asset_paths[3][3], Vector3(3.2, 0.055, 3.8), PI, 1.05)
 	place_room_asset(room_asset_paths[3][2], Vector3(-2.4, 0.75, 3.55), 0, 0.85)
 	reserve_spawn_area(Vector2(0, -5.25), Vector2(13.0, 1.3))
 	reserve_spawn_area(Vector2(0, 3.8), Vector2(3.4, 1.8))
@@ -1393,7 +1471,7 @@ func build_ballroom_map() -> void:
 		place_room_asset(room_asset_paths[4][0], Vector3(x, 0.055, -4.3), 0, 1.2)
 	for x in [-5.7, 0.0, 5.7]:
 		place_room_asset(room_asset_paths[4][1], Vector3(x, 0.055, 1.8), 0, 1.0)
-	place_room_asset("res://assets/kenney_building/stairs-center-short.glb", Vector3(0, 0.05, -5.8), 0, 1.65)
+	add_stage_wall(Vector3(0, 0.18, -5.6), Vector3(7.0, 0.30, 2.4), Color("574836"), true)
 	place_room_asset(room_asset_paths[4][2], Vector3(-6.6, 0.055, 4.0), PI * 0.5, 1.05)
 	place_room_asset(room_asset_paths[4][2], Vector3(6.6, 0.055, 4.0), -PI * 0.5, 1.05)
 	reserve_spawn_area(Vector2(0, -5.6), Vector2(14.0, 2.2))
@@ -1410,10 +1488,22 @@ func place_room_asset(path: String, position: Vector3, yaw: float = 0.0, uniform
 	var model := packed.instantiate() as Node3D
 	if model == null:
 		return null
-	model.position = position
+	parent.add_child(model)
+	var local_box := AABB()
+	for part in model.find_children("*", "MeshInstance3D", true, false):
+		var mesh_part := part as MeshInstance3D
+		local_box = local_box.merge(model.global_transform.affine_inverse() * mesh_part.global_transform * mesh_part.get_aabb())
+	var desired_heights := {"bedDouble": 0.85, "desk": 0.78, "tableCloth": 0.78, "tableRound": 0.78, "chairCushion": 0.94, "bookcaseOpen": 2.15, "loungeSofa": 0.85, "pottedPlant": 1.1, "armchair": 0.9, "lampSquareFloor": 1.65}
+	var asset_name := path.get_file().get_basename()
+	if desired_heights.has(asset_name):
+		uniform_scale = float(desired_heights[asset_name]) / maxf(0.01, local_box.size.y)
 	model.rotation.y = yaw
 	model.scale = Vector3.ONE * uniform_scale
-	parent.add_child(model)
+	var center := local_box.get_center()
+	model.position = position - Basis(Vector3.UP, yaw) * Vector3(center.x, local_box.position.y, center.z) * uniform_scale
+	if parent == stage_root and desired_heights.has(asset_name):
+		var footprint := Basis(Vector3.UP, yaw) * (local_box.size * uniform_scale)
+		reserve_spawn_area(Vector2(position.x, position.z), Vector2(absf(footprint.x), absf(footprint.z)) + Vector2(0.15, 0.15))
 	return model
 
 
@@ -1424,6 +1514,11 @@ func add_stage_wall(position: Vector3, size: Vector3, color: Color, with_collisi
 	visual.mesh = mesh
 	visual.position = position
 	visual.material_override = make_material(color)
+	if size.y > 2.9:
+		var plaster := ShaderMaterial.new()
+		plaster.shader = load("res://plaster.gdshader")
+		plaster.set_shader_parameter("paint_color", Vector3(color.r,color.g,color.b))
+		visual.material_override = plaster
 	stage_root.add_child(visual)
 	if with_collision:
 		var body := StaticBody3D.new()
@@ -1451,10 +1546,10 @@ func build_cleanup_tasks(rng: RandomNumberGenerator) -> void:
 		dirt_spots.append(dirt)
 	for i in room_item_counts[current_level - 1]:
 		var item_spot := random_room_spot(rng)
-		var pos2 := Vector3(item_spot.x, 0.20, item_spot.y)
+		var pos2 := Vector3(item_spot.x, 0.055, item_spot.y)
 		var item := make_asset_cleanup_body(pos2, fallen_asset_paths[i % fallen_asset_paths.size()])
 		var target_spot := random_room_spot(rng)
-		var target := Vector3(target_spot.x, 0.20, target_spot.y)
+		var target := Vector3(target_spot.x, 0.055, target_spot.y)
 		item.set_meta("target", target)
 		misplaced_items.append(item)
 		var marker_mesh := BoxMesh.new()
@@ -1488,6 +1583,18 @@ func make_cleanup_body(body_name: String, position: Vector3, size: Vector3, colo
 	var visual := MeshInstance3D.new()
 	visual.mesh = mesh
 	visual.material_override = make_material(color)
+	if layer == 8:
+		var patch := QuadMesh.new()
+		patch.size = Vector2(size.z, size.y) if size.y > 0.1 else Vector2(size.x, size.z)
+		visual.mesh = patch
+		if size.y > 0.1:
+			visual.rotation.y = PI * 0.5 if position.x < 0 else -PI * 0.5
+		else:
+			visual.rotation.x = -PI * 0.5
+		var stain_material := ShaderMaterial.new()
+		stain_material.shader = load("res://stain.gdshader")
+		visual.material_override = stain_material
+		visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	body.add_child(visual)
 	var shape := BoxShape3D.new()
 	shape.size = size
@@ -1501,11 +1608,11 @@ func make_cleanup_body(body_name: String, position: Vector3, size: Vector3, colo
 func set_cleanup_tasks_visible(show_dirt: bool, show_items: bool) -> void:
 	for dirt in dirt_spots:
 		if is_instance_valid(dirt):
-			dirt.visible = show_dirt
+			dirt.visible = true
 			dirt.collision_layer = 8 if show_dirt else 0
 	for item in misplaced_items:
 		if is_instance_valid(item):
-			item.visible = show_items
+			item.visible = true
 			item.collision_layer = 16 if show_items else 0
 	for child in stage_root.get_children():
 		if child.has_meta("organize_marker"):
@@ -1516,7 +1623,8 @@ func advance_cleanup_phase() -> void:
 	if cleanup_phase == 0:
 		cleanup_phase = 1
 		set_cleanup_tasks_visible(true, false)
-		message = "PHASE 2: Mop floor stains and wipe grime from the walls."
+		message = "HOLD LEFT MOUSE: Mop floor stains and wipe the walls."
+		select_tool(0)
 	elif cleanup_phase == 1:
 		cleanup_phase = 2
 		set_cleanup_tasks_visible(false, true)
@@ -1538,6 +1646,15 @@ func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
 		return true
 	var body: StaticBody3D = hit["collider"]
 	if cleanup_phase == 1:
+		var scrub: float = float(body.get_meta("scrub",0.0)) + 0.20 + float(mop_skill) * 0.08
+		body.set_meta("scrub", scrub)
+		var stain_visual := body.get_child(0) as MeshInstance3D
+		if stain_visual.material_override is ShaderMaterial:
+			stain_visual.material_override.set_shader_parameter("strength", 1.0 - scrub)
+		if scrub < 0.99:
+			message = "HOLD LEFT MOUSE · Scrubbing %d%%" % int(scrub * 100)
+			update_ui()
+			return true
 		var cleaned_now := 0
 		var max_clean := 1 + mop_skill
 		var center := body.global_position
@@ -1606,6 +1723,18 @@ func add_pearl(position: Vector3, rng: RandomNumberGenerator) -> StaticBody3D:
 
 
 func build_foam_meshes(group_counts: Array) -> void:
+	foam_shadows = MultiMesh.new()
+	foam_shadows.transform_format = MultiMesh.TRANSFORM_3D
+	var shadow_plane := PlaneMesh.new()
+	shadow_plane.size = Vector2(0.17, 0.17)
+	var shadow_mat := ShaderMaterial.new()
+	shadow_mat.shader = load("res://contact_shadow.gdshader")
+	shadow_plane.material = shadow_mat
+	foam_shadows.mesh = shadow_plane
+	foam_shadows.instance_count = foam_positions.size()
+	var shadow_instance := MultiMeshInstance3D.new()
+	shadow_instance.multimesh = foam_shadows
+	foam_root.add_child(shadow_instance)
 	var sphere := SphereMesh.new()
 	sphere.radius = FOAM_RADIUS
 	sphere.height = FOAM_RADIUS * 2.0
@@ -1628,6 +1757,9 @@ func build_foam_meshes(group_counts: Array) -> void:
 func update_foam_transform(index: int) -> void:
 	var position := foam_positions[index] if foam_alive[index] else Vector3(0.0, -1000.0, 0.0)
 	foam_meshes[foam_groups[index]].set_instance_transform(foam_slots[index], Transform3D(Basis(), position))
+	if foam_shadows != null:
+		var shadow_pos := Vector3(position.x, 0.051, position.z) if foam_alive[index] else Vector3(0,-1000,0)
+		foam_shadows.set_instance_transform(index, Transform3D(Basis(), shadow_pos))
 
 
 func foam_cell_for(position: Vector3) -> Vector2i:
@@ -1707,6 +1839,10 @@ func foam_near(position: Vector3, radius: float) -> Array[int]:
 func _physics_process(delta: float) -> void:
 	if not playing or game_paused:
 		return
+	hand_cooldown = maxf(0.0, hand_cooldown - delta)
+	if selected_tool == 0 and cleanup_phase <= 1 and mouse_captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and hand_cooldown <= 0:
+		search_center()
+		hand_cooldown = 0.12
 	blow_cooldown = maxf(0.0, blow_cooldown - delta)
 	push_cooldown = maxf(0.0, push_cooldown - delta)
 	last_foam_assist_timer += delta
@@ -2096,7 +2232,7 @@ func select_tool(index: int) -> void:
 	held_tool_body.material_override = make_material(tool_colors[index])
 	held_tool_nozzle.material_override = make_material(nozzle_colors[index])
 	match index:
-		0: message = "Hand selected: click or press E to remove one foam bead."
+		0: message = "HOLD LEFT MOUSE: Scrub stains with the mop." if cleanup_phase == 1 else "HOLD LEFT MOUSE / E: Pick up foam."
 		1: message = "UV selected: the marker points toward the pearl."
 		2: message = "Blower selected: hold click to send foam flying."
 	update_ui()
@@ -2232,7 +2368,18 @@ func update_ui() -> void:
 	elif cleanup_phase == 2:
 		progress = "%d/%d OBJECTS" % [organized_items, room_item_counts[current_level - 1]]
 	var stance := "CROUCH" if crouching else "STAND"
-	hud.text = "ROOM %d/5 · %s    PHASE %d/3 · %s    %s    $%d · SP %d    %s" % [current_level, cleanup_room_names[current_level - 1], cleanup_phase + 1, phase_names[cleanup_phase], progress, coins, skill_points, stance]
+	var foam_percent := int(100.0 * removed_foam / maxi(1, current_foam_count))
+	var dirt_percent := int(100.0 * cleaned_surfaces / room_dirt_counts[current_level - 1])
+	var item_percent := int(100.0 * organized_items / room_item_counts[current_level - 1])
+	hud.text = "%s\nJOB %02d / 05\n------------------------\nRemove foam          %d%%\nClean surfaces        %d%%\nReturn objects         %d%%\n------------------------\nACCOUNT                  $%d\nSKILL POINTS               %d\n\n%s\n%s" % [cleanup_room_names[current_level - 1], current_level, foam_percent, dirt_percent, item_percent, coins, skill_points, phase_names[cleanup_phase], progress]
+	# Only show the gun when the selected equipment really is a gun.
+	for part in held_tool_root.get_children():
+		if part is MeshInstance3D:
+			part.visible = selected_tool != 0 or part.get_index() in [3, 4]
+	if mop_model != null:
+		mop_model.visible = cleanup_phase == 1
+		mop_model.rotation.z = sin(tool_bob_time * 3.0) * 0.035
+
 	hint.text = message
 	hint_panel.visible = playing and not message.is_empty()
 	for i in tool_buttons.size():
