@@ -1519,10 +1519,10 @@ func add_daylight_details(bounds: Vector4) -> void:
 					add_stage_wall(Vector3(shelf_x - 0.28 + book * 0.14, shelf_y + 0.14, -5.34), Vector3(0.10, 0.24 + (book % 3) * 0.045, 0.26), [Color("824d3b"),Color("576b65"),Color("ad986a")][book % 3])
 	add_stage_wall(Vector3(0,3.30,-1), Vector3(0.65,0.14,0.65), Color("ddd8c8"))
 	add_stage_wall(Vector3(0,3.21,-1), Vector3(0.53,0.045,0.53), Color("f4ebca"))
-	# Ceiling follows each floor section so the L-shaped suite remains L-shaped.
-	for rect in current_walkable_rects:
-		var center := rect.get_center()
-		add_stage_wall(Vector3(center.x, 3.43, center.y), Vector3(rect.size.x + 0.56, 0.08, rect.size.y + 0.56), Color("eeeadd"))
+	# Levels 2 and 4 have recessed floor plans inside a rectangular exterior
+	# shell. Cover the entire shell so the inaccessible corner pockets cannot
+	# leave visible holes in the roof when viewed from outside or at an angle.
+	add_stage_wall(Vector3((bounds.x + bounds.y) * 0.5, 3.43, (bounds.z + bounds.w) * 0.5), Vector3(width + 0.26, 0.08, depth + 0.26), Color("eeeadd"))
 	var daylight := OmniLight3D.new()
 	daylight.position = Vector3(0, 2.7, bounds.w - 0.9)
 	daylight.light_color = Color("eaf1f5")
