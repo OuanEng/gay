@@ -1210,6 +1210,55 @@ func point_is_spawn_blocked(point: Vector2) -> bool:
 	return false
 
 
+func point_is_inside_room(point: Vector2, margin: float = FOAM_RADIUS) -> bool:
+	for rect in current_walkable_rects:
+		if rect.grow(-margin).has_point(point):
+			return true
+	return false
+
+
+func keep_foam_inside_room(previous: Vector3, position: Vector3, velocity: Vector3) -> Dictionary:
+	var point := Vector2(position.x, position.z)
+	if point_is_inside_room(point):
+		return {"position": position, "velocity": velocity}
+	# Use the floor section occupied on the previous frame. This also seals
+	# internal corners in L-shaped rooms instead of clamping to one large box.
+	var active_rect := Rect2()
+	var found_active := false
+	var previous_point := Vector2(previous.x, previous.z)
+	for rect in current_walkable_rects:
+		if rect.grow(FOAM_RADIUS * 0.5).has_point(previous_point):
+			active_rect = rect.grow(-FOAM_RADIUS)
+			found_active = true
+			break
+	if not found_active:
+		var best_distance := INF
+		for rect in current_walkable_rects:
+			var safe := rect.grow(-FOAM_RADIUS)
+			var closest := Vector2(
+				clampf(previous_point.x, safe.position.x, safe.end.x),
+				clampf(previous_point.y, safe.position.y, safe.end.y)
+			)
+			var distance := previous_point.distance_squared_to(closest)
+			if distance < best_distance:
+				best_distance = distance
+				active_rect = safe
+				found_active = true
+	if not found_active:
+		return {"position": position, "velocity": velocity}
+	var corrected := Vector2(
+		clampf(point.x, active_rect.position.x, active_rect.end.x),
+		clampf(point.y, active_rect.position.y, active_rect.end.y)
+	)
+	if not is_equal_approx(corrected.x, point.x):
+		velocity.x *= -0.42
+	if not is_equal_approx(corrected.y, point.y):
+		velocity.z *= -0.42
+	position.x = corrected.x
+	position.z = corrected.y
+	return {"position": position, "velocity": velocity}
+
+
 func reserve_spawn_area(center: Vector2, size: Vector2) -> void:
 	blocked_spawn_rects.append(Rect2(center - size * 0.5, size))
 
@@ -1906,18 +1955,16 @@ func move_foam(delta: float) -> void:
 		var velocity := foam_velocities[index]
 		velocity.y += (foam_rest_heights[index] - foam_positions[index].y) * 9.0 * delta
 		velocity *= 0.94
-		var position := foam_positions[index] + velocity * delta
+		var previous_position := foam_positions[index]
+		var position := previous_position + velocity * delta
 		if position.y < FOAM_BASE_Y:
 			position.y = FOAM_BASE_Y
 			velocity.y = absf(velocity.y) * 0.48
 			velocity.x *= 0.82
 			velocity.z *= 0.82
-		if position.x < -8.7 or position.x > 8.7:
-			position.x = clampf(position.x, -8.7, 8.7)
-			velocity.x *= -0.55
-		if position.z < -8.7 or position.z > 6.7:
-			position.z = clampf(position.z, -8.7, 6.7)
-			velocity.z *= -0.55
+		var room_collision := keep_foam_inside_room(previous_position, position, velocity)
+		position = room_collision["position"]
+		velocity = room_collision["velocity"]
 		foam_positions[index] = position
 		foam_velocities[index] = velocity
 		var new_cell := foam_cell_for(position)
@@ -1938,6 +1985,8 @@ func move_foam(delta: float) -> void:
 			position.y = foam_rest_heights[index]
 			position.x = (float(foam_stack_keys[index].x) + 0.5) * FOAM_DIAMETER
 			position.z = (float(foam_stack_keys[index].y) + 0.5) * FOAM_DIAMETER
+			var settled_collision := keep_foam_inside_room(foam_positions[index], position, Vector3.ZERO)
+			position = settled_collision["position"]
 			foam_positions[index] = position
 			foam_velocities[index] = Vector3.ZERO
 			var settled_cell := foam_cell_for(position)
