@@ -1449,6 +1449,7 @@ func add_daylight_details(bounds: Vector4) -> void:
 	var width := bounds.y - bounds.x
 	var depth := bounds.w - bounds.z
 	var trim := Color("eee9dd")
+	var wall_color: Color = [Color("c6b7a0"), Color("b7c3bd"), Color("c5b7a9"), Color("aab5aa")][current_level - 1]
 	# Crown and skirting ground the room at human scale.
 	for y in [0.15, 3.24]:
 		for x in [bounds.x + 0.12, bounds.y - 0.12]:
@@ -1458,8 +1459,8 @@ func add_daylight_details(bounds: Vector4) -> void:
 	var side_width := (width - 1.5) / 2
 	for sign_value in [-1.0, 1.0]:
 		var x: float = sign_value * (0.75 + side_width / 2)
-		add_stage_wall(Vector3(x, 0.48, bounds.w), Vector3(side_width, 0.96, 0.18), Color("b8b7a6"), true)
-		add_stage_wall(Vector3(x, 3.02, bounds.w), Vector3(side_width, 0.76, 0.18), Color("b8b7a6"), true)
+		add_stage_wall(Vector3(x, 0.48, bounds.w), Vector3(side_width, 0.96, 0.18), wall_color, true)
+		add_stage_wall(Vector3(x, 3.02, bounds.w), Vector3(side_width, 0.76, 0.18), wall_color, true)
 		for edge in [-1.0, 1.0]:
 			add_stage_wall(Vector3(x + edge * (side_width / 2 - 0.07), 1.8, bounds.w), Vector3(0.14, 1.7, 0.26), trim, true)
 		for y in [0.99, 1.8, 2.61]:
@@ -1519,9 +1520,7 @@ func add_daylight_details(bounds: Vector4) -> void:
 					add_stage_wall(Vector3(shelf_x - 0.28 + book * 0.14, shelf_y + 0.14, -5.34), Vector3(0.10, 0.24 + (book % 3) * 0.045, 0.26), [Color("824d3b"),Color("576b65"),Color("ad986a")][book % 3])
 	add_stage_wall(Vector3(0,3.30,-1), Vector3(0.65,0.14,0.65), Color("ddd8c8"))
 	add_stage_wall(Vector3(0,3.21,-1), Vector3(0.53,0.045,0.53), Color("f4ebca"))
-	# Levels 2 and 4 have recessed floor plans inside a rectangular exterior
-	# shell. Cover the entire shell so the inaccessible corner pockets cannot
-	# leave visible holes in the roof when viewed from outside or at an angle.
+	# A single roof slab covers the complete exterior shell.
 	add_stage_wall(Vector3((bounds.x + bounds.y) * 0.5, 3.43, (bounds.z + bounds.w) * 0.5), Vector3(width + 0.26, 0.08, depth + 0.26), Color("eeeadd"))
 	var daylight := OmniLight3D.new()
 	daylight.position = Vector3(0, 2.7, bounds.w - 0.9)
@@ -1558,7 +1557,6 @@ func add_floor_section(rect: Rect2, color: Color) -> void:
 
 
 func build_room_shell(bounds: Vector4, color: Color, back_opening: float = 0.0) -> void:
-	color = [Color("b8b7a6"), Color("b3beb9"), Color("c3b4a0"), Color("a0aba6"), Color("c4bdac")][current_level - 1]
 	if current_level != 1:
 		back_opening = 0.0
 	var width := bounds.y - bounds.x
@@ -1581,7 +1579,7 @@ func build_room_shell(bounds: Vector4, color: Color, back_opening: float = 0.0) 
 func build_foyer_map() -> void:
 	var b := level_bounds()
 	add_floor_section(Rect2(-2.8, -3.0, 5.6, 5.5), Color("8a5e3b"))
-	build_room_shell(b, Color("d5a85c"), 1.8)
+	build_room_shell(b, Color("c6b7a0"), 1.8)
 	add_stage_wall(Vector3(-1.65, 0.42, -1.7), Vector3(0.5, 0.84, 0.5), Color("e4c77b"), true)
 	add_stage_wall(Vector3(1.65, 0.42, -1.7), Vector3(0.5, 0.84, 0.5), Color("e4c77b"), true)
 	place_room_asset(room_asset_paths[0][1], Vector3(-2.0, 0.055, 1.25), PI * 0.5, 0.85)
@@ -1620,18 +1618,14 @@ func build_foyer_door() -> void:
 
 func build_guest_suite_map() -> void:
 	var b := level_bounds()
-	add_floor_section(Rect2(-4.3, -4.0, 8.6, 5.3), Color("497f88"))
-	add_floor_section(Rect2(-1.8, 1.3, 6.1, 2.2), Color("5f9298"))
-	build_room_shell(b, Color("72b0b7"), 1.5)
-	# Seal the missing corner of the L-shaped floor all the way to the ceiling.
-	# The old half-height divider exposed the empty space outside the playable room.
-	add_stage_wall(Vector3(-1.8, 1.7, 2.4), Vector3(0.22, 3.4, 2.4), Color("b3beb9"), true)
-	add_stage_wall(Vector3(-1.8, 0.15, 2.4), Vector3(0.10, 0.18, 2.4), Color("eee9dd"))
-	add_stage_wall(Vector3(-1.8, 3.24, 2.4), Vector3(0.10, 0.18, 2.4), Color("eee9dd"))
-	# The front wing becomes a reading nook reached through a clear doorway.
-	mansion_wall_z(1.3, -1.8, 4.3, Color("b3beb9"), 1.35, 1.95)
+	add_floor_section(Rect2(-4.3, -4.0, 8.6, 7.5), Color("8f745b"))
+	build_room_shell(b, Color("b7c3bd"), 1.5)
+	# A full-width partition creates a simple bedroom and reading nook without
+	# leaving a missing floor pocket behind the outer wall.
+	mansion_wall_z(1.3, -4.3, 4.3, Color("b7c3bd"), 1.35, 1.95)
 	add_stage_wall(Vector3(1.35, 0.07, 1.3), Vector3(2.05, 0.025, 0.42), Color("819b9a"))
 	mansion_room_light(Vector3(1.4, 2.62, 2.55), Color("d5e8e7"), 0.28)
+	place_room_asset("res://assets/kaykit_furniture/armchair.gltf", Vector3(-2.5, 0.055, 2.25), PI * 0.25, 0.8)
 	place_room_asset(room_asset_paths[1][0], Vector3(-2.35, 0.055, -2.25), PI * 0.5, 1.05)
 	place_room_asset(room_asset_paths[1][1], Vector3(2.65, 0.055, -1.8), -PI * 0.5, 0.95)
 	place_room_asset(room_asset_paths[1][2], Vector3(1.6, 0.055, 2.55), PI, 0.9)
@@ -1644,10 +1638,10 @@ func build_guest_suite_map() -> void:
 func build_dining_map() -> void:
 	var b := level_bounds()
 	add_floor_section(Rect2(-5.8, -5.0, 11.6, 9.8), Color("78464f"))
-	build_room_shell(b, Color("b06a72"), 2.4)
+	build_room_shell(b, Color("c5b7a9"), 2.4)
 	# A narrow service bay changes the long dining hall into a room with a
 	# destination behind the table, while preserving a wide central route.
-	mansion_wall_x(3.45, -4.2, 3.8, Color("b7a394"), 1.35, 1.9)
+	mansion_wall_x(3.45, -5.0, 4.8, Color("c5b7a9"), 1.35, 1.9)
 	add_stage_wall(Vector3(4.35, 0.055, -1.4), Vector3(1.7, 0.025, 5.6), Color("8d7566"))
 	place_room_asset("res://assets/kenney_furniture/cardboardBoxOpen.glb", Vector3(4.75, 0.055, -2.55), 0.3, 0.8)
 	mansion_room_light(Vector3(4.4, 2.62, 0.0), Color("fff0d8"), 0.28)
@@ -1663,17 +1657,11 @@ func build_dining_map() -> void:
 
 func build_library_map() -> void:
 	var b := level_bounds()
-	add_floor_section(Rect2(-7.0, -6.0, 14.0, 8.0), Color("3e674f"))
-	add_floor_section(Rect2(-4.8, 2.0, 9.6, 3.8), Color("52795f"))
-	build_room_shell(b, Color("73946d"), 1.8)
-	# Close both recessed corners where the narrow front wing meets the main room.
-	for x in [-4.8, 4.8]:
-		add_stage_wall(Vector3(x, 1.7, 3.9), Vector3(0.22, 3.4, 3.8), Color("a0aba6"), true)
-		add_stage_wall(Vector3(x, 0.15, 3.9), Vector3(0.10, 0.18, 3.8), Color("eee9dd"))
-		add_stage_wall(Vector3(x, 3.24, 3.9), Vector3(0.10, 0.18, 3.8), Color("eee9dd"))
+	add_floor_section(Rect2(-7.0, -6.0, 14.0, 11.8), Color("6c735e"))
+	build_room_shell(b, Color("aab5aa"), 1.8)
 	# The western shelf corridor rejoins the main floor near the reading annex.
-	mansion_wall_x(-5.0, -4.7, 1.3, Color("89968c"), -3.7, 1.35)
-	mansion_wall_z(2.0, -4.8, 4.8, Color("a0aba6"), 0.0, 2.1)
+	mansion_wall_x(-5.0, -4.7, 1.3, Color("aab5aa"), -3.7, 1.35)
+	mansion_wall_z(2.0, -7.0, 7.0, Color("aab5aa"), 0.0, 2.1)
 	add_stage_wall(Vector3(0, 0.07, 2.0), Vector3(2.2, 0.025, 0.44), Color("6c795f"))
 	mansion_room_light(Vector3(0, 2.62, 3.7), Color("e2edcf"), 0.28)
 	# Keep the library sightline open from the entrance.
