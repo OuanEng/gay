@@ -63,6 +63,12 @@ var buy_helper_button: Button
 var next_level_button: Button
 var tools_bar: HBoxContainer
 var tool_buttons: Array[Button] = []
+var status_icon: TextureRect
+var vacuum_ready_material: StandardMaterial3D
+var vacuum_full_material: StandardMaterial3D
+var mop_clean_material: StandardMaterial3D
+var mop_dirty_material: StandardMaterial3D
+var mop_cloths: Array[MeshInstance3D] = []
 var skill_panel: PanelContainer
 var skill_points_label: Label
 var skill_buttons: Array[Button] = []
@@ -116,12 +122,13 @@ var crouching := false
 var cleanup_phase := 0
 var dirt_spots: Array[StaticBody3D] = []
 var misplaced_items: Array[StaticBody3D] = []
+var carried_items: Array[StaticBody3D] = []
 var cleaned_surfaces := 0
 var organized_items := 0
 var room_dirt_counts := [5, 9, 14, 20, 28]
 var room_item_counts := [3, 5, 8, 12, 17]
 var cleanup_room_names := ["GRAND FOYER", "GUEST ROOM", "DINING HALL", "LIBRARY", "MANSION"]
-var cleanup_foam_counts := [420, 800, 1400, 2100, 3000]
+var cleanup_foam_counts := [60, 120, 220, 360, 550]
 var phase_names := ["CLEAR FOAM", "CLEAN SURFACES", "ORGANIZE ROOM"]
 var skill_coin_costs := [20, 60, 140]
 var room_asset_paths := [
@@ -150,10 +157,27 @@ var mop_model: Node3D
 var foam_shadows: MultiMesh
 var tool_bob_time := 0.0
 var hand_cooldown := 0.0
+var vacuum_load := 0
+var vacuum_capacity := 24
+var vacuum_range := 2.4
+var mop_load := 0
+var mop_capacity := 5
+var helper_load := 0
+var helper_capacity := 16
+var helper_level := 0
+var helper_robot: Node3D
+var station_z := 0.0
 
 
 func _ready() -> void:
 	make_materials()
+	vacuum_ready_material = make_material(Color("326f85"), 0.35)
+	vacuum_full_material = make_material(Color("ee713f"), 0.35)
+	vacuum_full_material.emission_enabled = true
+	vacuum_full_material.emission = Color("ff9b3f")
+	vacuum_full_material.emission_energy_multiplier = 1.7
+	mop_clean_material = make_material(Color("d7d3b9"))
+	mop_dirty_material = make_material(Color("80523c"))
 	make_house()
 	make_player()
 	make_ui()
@@ -226,6 +250,50 @@ func box(name: String, position: Vector3, size: Vector3, material: Material, sol
 		collision.shape = shape
 		body.add_child(collision)
 	add_child(body)
+
+
+func make_service_station(label_text: String, at: Vector3, color: Color) -> void:
+	var station := Node3D.new()
+	station.position = at
+	stage_root.add_child(station)
+	var mesh := MeshInstance3D.new()
+	var shape := CylinderMesh.new()
+	shape.top_radius = 0.36
+	shape.bottom_radius = 0.4
+	shape.height = 0.8
+	mesh.mesh = shape
+	mesh.material_override = make_material(color, 0.45)
+	station.add_child(mesh)
+	var label := Label3D.new()
+	label.text = label_text
+	label.position.y = 0.72
+	label.font_size = 64
+	label.pixel_size = 0.003
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	station.add_child(label)
+
+
+func make_helper_robot() -> void:
+	helper_robot = Node3D.new()
+	helper_robot.position = player.position + Vector3(0.8, 0.0, 0.0)
+	stage_root.add_child(helper_robot)
+	var body := MeshInstance3D.new()
+	var shape := CylinderMesh.new()
+	shape.top_radius = 0.28
+	shape.bottom_radius = 0.34
+	shape.height = 0.38
+	body.mesh = shape
+	body.position.y = 0.27
+	body.material_override = make_material(Color("e1b95c"), 0.35)
+	helper_robot.add_child(body)
+	var eye := MeshInstance3D.new()
+	var eye_shape := SphereMesh.new()
+	eye_shape.radius = 0.09
+	eye_shape.height = 0.18
+	eye.mesh = eye_shape
+	eye.position = Vector3(0.0, 0.32, -0.29)
+	eye.material_override = make_material(Color("54d9e9"), 0.2)
+	helper_robot.add_child(eye)
 
 
 func make_house() -> void:
@@ -424,8 +492,9 @@ func make_mop() -> void:
 		cloth_box.size = Vector3(0.032,0.065,0.25)
 		cloth.mesh = cloth_box
 		cloth.position = Vector3(-0.37+strand*0.038,-0.54,-0.85)
-		cloth.material_override = make_material(Color("d7d3b9"))
+		cloth.material_override = mop_clean_material
 		mop_model.add_child(cloth)
+		mop_cloths.append(cloth)
 
 
 func make_ui() -> void:
@@ -487,6 +556,20 @@ func make_ui() -> void:
 	crosshair.add_theme_font_size_override("font_size", 32)
 	crosshair.add_theme_color_override("font_color", Color("fff1c9"))
 	root.add_child(crosshair)
+	status_icon = TextureRect.new()
+	status_icon.anchor_left = 0.5
+	status_icon.anchor_right = 0.5
+	status_icon.anchor_top = 0.5
+	status_icon.anchor_bottom = 0.5
+	status_icon.offset_left = 30.0
+	status_icon.offset_right = 94.0
+	status_icon.offset_top = 22.0
+	status_icon.offset_bottom = 86.0
+	status_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	status_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	status_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	status_icon.visible = false
+	root.add_child(status_icon)
 	uv_marker = Label.new()
 	uv_marker.text = "◉"
 	uv_marker.add_theme_font_size_override("font_size", 38)
@@ -537,7 +620,7 @@ func make_ui() -> void:
 	loop_card.add_theme_stylebox_override("panel", ui_panel_style(Color(0.07, 0.14, 0.18, 0.88), Color(0.3, 0.55, 0.58, 0.5)))
 	menu.add_child(loop_card)
 	var controls := Label.new()
-	controls.text = "1. CLEAR FOAM     2. CLEAN SURFACES     3. RESTORE THE ROOM\nEarn coins • Build your skill tree • Unlock better tools"
+	controls.text = "1. VACUUM FOAM     2. MOP STAINS     3. RETURN OBJECTS\nEmpty the vacuum • Rinse the mop • Upgrade your gear"
 	controls.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	controls.add_theme_font_size_override("font_size", 16)
 	controls.add_theme_color_override("font_color", Color("c7d8d7"))
@@ -567,7 +650,7 @@ func make_ui() -> void:
 	level_button.pressed.connect(open_level_select)
 	menu.add_child(level_button)
 	var footer := Label.new()
-	footer.text = "WASD MOVE   •   CLICK / E INTERACT   •   K SKILLS   •   F10 CHEATS"
+	footer.text = "WASD MOVE   •   1 HAND  2 VACUUM  3 MOP   •   E STATIONS   •   K SKILLS"
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	footer.add_theme_font_size_override("font_size", 14)
 	footer.add_theme_color_override("font_color", Color("819ba3"))
@@ -589,8 +672,8 @@ func make_ui() -> void:
 	tools_bar.add_theme_constant_override("separation", 8)
 	tools_bar.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.add_child(tools_bar)
-	var icons := ["res://icon_hand.svg", "res://icon_uv.svg", "res://icon_blower.svg"]
-	var descriptions := ["1  Hand: remove one foam bead", "2  UV flashlight: reveal pearl when aimed", "3  Blower: push foam aside"]
+	var icons := ["res://icon_hand.svg", "res://icon_vacuum.svg", "res://icon_mop.svg"]
+	var descriptions := ["1  Hand: return misplaced objects", "2  Vacuum: collect foam; empty it at the orange bin", "3  Mop: clean stains; rinse it at the blue basin"]
 	for i in 3:
 		var button := Button.new()
 		button.custom_minimum_size = Vector2(72.0, 72.0)
@@ -599,6 +682,13 @@ func make_ui() -> void:
 		button.tooltip_text = descriptions[i]
 		button.pressed.connect(select_tool.bind(i))
 		tools_bar.add_child(button)
+		var number := Label.new()
+		number.text = str(i + 1)
+		number.add_theme_font_size_override("font_size", 14)
+		number.add_theme_color_override("font_color", Color("fff1c4"))
+		number.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		number.position = Vector2(5, 1)
+		button.add_child(number)
 		tool_buttons.append(button)
 	update_ui()
 
@@ -642,7 +732,7 @@ func make_shop_ui(root: Control) -> void:
 	buy_mop_button = shop_button(gear_grid, "WIDE MOP", buy_wide_mop)
 	buy_boots_button = shop_button(gear_grid, "LIGHT WORK BOOTS", buy_work_boots)
 	buy_magnet_button = shop_button(gear_grid, "ORGANIZER MAGNET", buy_organizer_magnet)
-	buy_blower_button = shop_button(gear_grid, "FOAM BLOWER", buy_blower)
+	buy_blower_button = shop_button(gear_grid, "VACUUM RANGE", buy_blower)
 	buy_vacuum_button = shop_button(gear_grid, "FOAM VACUUM", buy_vacuum)
 	buy_helper_button = shop_button(gear_grid, "CLEANUP HELPER", buy_helper)
 	var mastery_button := shop_button(gear_grid, "ADVANCED TRAINING\nSpend skill points on 3-level mastery", func(): open_skill_tree(true))
@@ -702,7 +792,7 @@ func make_skill_tree_ui(root: Control) -> void:
 	legend.add_theme_font_size_override("font_size", 14)
 	legend.add_theme_color_override("font_color", Color("91a1ad"))
 	tree.add_child(legend)
-	var labels := ["QUICK HANDS", "FOAM BLOWER", "DEEP CLEAN", "ORGANIZER MAGNET", "LIGHT FEET"]
+	var labels := ["TWO HANDS", "VACUUM", "DEEP CLEAN", "ORGANIZING", "LIGHT FEET"]
 	var colors := [Color("35e68a"), Color("35bce6"), Color("f4c430"), Color("e865ce"), Color("ff5b5b")]
 	var branch_x := [110.0, 330.0, 550.0, 770.0, 990.0]
 	var node_y := [400.0, 295.0, 190.0]
@@ -1041,10 +1131,10 @@ func upgrade_skill_node(branch: int, target_level: int) -> void:
 	coins -= coin_cost
 	set_skill_level(branch, target_level)
 	if branch == 1:
-		owns_blower = true
-		blower_level = blower_skill
-		if tool_buttons.size() >= 3:
-			tool_buttons[2].visible = true
+		vacuum_range += 0.6
+		vacuum_capacity += 12
+	if branch == 2:
+		mop_capacity += 2
 	update_skill_tree()
 	update_ui()
 
@@ -1066,18 +1156,18 @@ func update_skill_tree() -> void:
 	if skill_points_label == null:
 		return
 	skill_points_label.text = "SKILL POINTS   %d     COINS   %d" % [skill_points, coins]
-	var names := ["QUICK HANDS", "FOAM BLOWER", "DEEP CLEAN", "ORGANIZER MAGNET", "LIGHT FEET"]
+	var names := ["TWO HANDS", "VACUUM", "DEEP CLEAN", "ORGANIZING", "LIGHT FEET"]
 	var details := [
-		"Pick up more nearby foam per click",
-		"Unlock blower, then improve power and radius",
-		"Remove several nearby floor or wall stains",
-		"Longer reach and faster object placement",
+		"Carry up to two objects at once",
+		"Increase vacuum range and tank capacity",
+		"Scrub faster and rinse less often",
+		"Increase carrying reach and placement speed",
 		"Move faster and crouch without slowing as much"
 	]
 	var tier_effects := [
-		["PICK 3", "PICK 5", "PICK 7"],
-		["UNLOCK", "+POWER", "+RADIUS"],
-		["SCRUB +", "CLEAN 3", "CLEAN 4"],
+		["2 HANDS", "+REACH", "+SPEED"],
+		["TANK +", "RANGE +", "TANK ++"],
+		["SCRUB +", "CAPACITY +", "SCRUB ++"],
 		["REACH +", "REACH ++", "REACH +++"],
 		["SPEED 12%", "SPEED 24%", "SPEED 36%"]
 	]
@@ -1160,6 +1250,11 @@ func reset_career_progress(start_level: int) -> void:
 	blower_level = 0
 	vacuum_timer = 0.0
 	helper_timer = 0.0
+	helper_level = 0
+	helper_capacity = 16
+	vacuum_capacity = 24
+	vacuum_range = 2.4
+	mop_capacity = 5
 
 
 func start_round(chosen_mode: String) -> void:
@@ -1173,6 +1268,7 @@ func start_round(chosen_mode: String) -> void:
 		if is_instance_valid(item): item.queue_free()
 	dirt_spots.clear()
 	misplaced_items.clear()
+	carried_items.clear()
 	foam_positions.clear()
 	foam_rest_heights.clear()
 	foam_velocities.clear()
@@ -1202,6 +1298,9 @@ func start_round(chosen_mode: String) -> void:
 	cleaned_surfaces = 0
 	organized_items = 0
 	selected_tool = 0
+	vacuum_load = 0
+	mop_load = 0
+	helper_load = 0
 	uv_on = false
 	uv_found = false
 	blower_on = false
@@ -1216,6 +1315,9 @@ func start_round(chosen_mode: String) -> void:
 	update_light_switch()
 	build_level_layout()
 	var bounds := level_bounds()
+	station_z = bounds.w - 0.7
+	make_service_station("FOAM BIN  [E]", Vector3(-2.0, 0.45, station_z), Color("de9858"))
+	make_service_station("RINSE BASIN  [E]", Vector3(2.0, 0.45, station_z), Color("5aacc9"))
 	player.position = Vector3(1.35 if current_level == 2 else 0.0, 0.1, 2.3 if current_level == 5 else bounds.w - 0.9)
 	player.velocity = Vector3.ZERO
 	player.rotation = Vector3.ZERO
@@ -1252,15 +1354,17 @@ func start_round(chosen_mode: String) -> void:
 		foam_cells[cell].append(i)
 	build_foam_meshes(group_counts)
 	build_cleanup_tasks(rng)
+	if owns_helper:
+		make_helper_robot()
 	playing = true
 	held_tool_root.visible = true
 	menu_panel.visible = false
 	hud_panel.visible = true
 	tools_bar.visible = true
 	hint_panel.visible = false
-	tool_buttons[1].visible = owns_uv
-	tool_buttons[2].visible = owns_blower
-	var visible_tools := 1 + int(owns_uv) + int(owns_blower)
+	tool_buttons[1].visible = true
+	tool_buttons[2].visible = true
+	var visible_tools := 3
 	tools_bar.offset_left = -40.0 * visible_tools
 	tools_bar.offset_right = 40.0 * visible_tools
 	crosshair.visible = true
@@ -1268,7 +1372,8 @@ func start_round(chosen_mode: String) -> void:
 	result_panel.visible = false
 	shop_panel.visible = false
 	apply_level_theme()
-	message = "PHASE 1: Remove every foam bead to reveal the room."
+	select_tool(1)
+	message = "Vacuum the foam. Press E at the orange bin when the tank is full."
 	capture_mouse()
 	update_ui()
 
@@ -2141,12 +2246,13 @@ func advance_cleanup_phase() -> void:
 	if cleanup_phase == 0:
 		cleanup_phase = 1
 		set_cleanup_tasks_visible(true, false)
-		message = "HOLD LEFT MOUSE: Mop floor stains and wipe the walls."
-		select_tool(0)
+		select_tool(2)
+		message = "Hold click to scrub. Rinse the mop at the blue basin when dirty."
 	elif cleanup_phase == 1:
 		cleanup_phase = 2
 		set_cleanup_tasks_visible(false, true)
-		message = "PHASE 3: Click fallen objects to return them to the green markers."
+		select_tool(0)
+		message = "Click to pick up an object. Press E at its green marker to place it."
 	else:
 		complete_cleanup_room()
 	update_ui()
@@ -2164,6 +2270,10 @@ func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
 		return true
 	var body: StaticBody3D = hit["collider"]
 	if cleanup_phase == 1:
+		if mop_load >= mop_capacity:
+			message = "Mop is dirty. Press E at the blue basin to rinse it."
+			update_ui()
+			return true
 		var scrub: float = float(body.get_meta("scrub",0.0)) + 0.34 + float(mop_skill) * 0.12
 		body.set_meta("scrub", scrub)
 		var stain_visual := body.get_child(0) as MeshInstance3D
@@ -2186,24 +2296,47 @@ func interact_cleanup_task(origin: Vector3, direction: Vector3) -> bool:
 				dirt.queue_free()
 				cleaned_now += 1
 		cleaned_surfaces += cleaned_now
+		mop_load = mini(mop_capacity, mop_load + cleaned_now)
 		message = "Surface cleaned. %d / %d" % [cleaned_surfaces, room_dirt_counts[current_level - 1]]
 		if cleaned_surfaces >= room_dirt_counts[current_level - 1]: advance_cleanup_phase()
 	else:
-		organized_items += 1
-		misplaced_items.erase(body)
-		body.collision_layer = 0
-		for item_child in body.get_children():
-			if item_child.has_meta("item_highlight"):
-				item_child.visible = false
-		var tween := create_tween()
-		var organize_time := maxf(0.12, 0.42 - float(organize_skill) * 0.09)
-		tween.tween_property(body, "position", body.get_meta("target"), organize_time).set_trans(Tween.TRANS_BACK)
-		message = "Object returned. %d / %d" % [organized_items, room_item_counts[current_level - 1]]
-		if organized_items >= room_item_counts[current_level - 1]:
-			await tween.finished
-			advance_cleanup_phase()
+		if carried_items.size() >= 1 + int(hand_skill >= 1):
+			message = "Hands full. Press E at a green marker to place an object."
+		else:
+			carried_items.append(body)
+			body.visible = false
+			body.collision_layer = 0
+			message = "Carrying %d/%d. Follow a green marker and press E." % [carried_items.size(), 1 + int(hand_skill >= 1)]
 	update_ui()
 	return true
+
+
+func deliver_carried_items() -> bool:
+	if cleanup_phase != 2 or carried_items.is_empty():
+		return false
+	var delivered := 0
+	for item in carried_items.duplicate():
+		var target: Vector3 = item.get_meta("target")
+		if Vector2(player.position.x, player.position.z).distance_to(Vector2(target.x, target.z)) > 1.35 + float(organize_skill) * 0.3:
+			continue
+		carried_items.erase(item)
+		misplaced_items.erase(item)
+		item.position = player.position + Vector3(0.0, 0.5, 0.0)
+		item.visible = true
+		for item_child in item.get_children():
+			if item_child.has_meta("item_highlight"):
+				item_child.visible = false
+		create_tween().tween_property(item, "position", target, 0.3).set_trans(Tween.TRANS_BACK)
+		organized_items += 1
+		delivered += 1
+	if delivered == 0:
+		message = "Move to the green marker for an object you are carrying."
+	else:
+		message = "Placed %d object(s). %d / %d" % [delivered, organized_items, room_item_counts[current_level - 1]]
+		if organized_items >= room_item_counts[current_level - 1]:
+			advance_cleanup_phase()
+	update_ui()
+	return delivered > 0
 
 
 func complete_cleanup_room() -> void:
@@ -2316,12 +2449,14 @@ func remove_foam(index: int) -> void:
 
 func remove_foam_cluster(center_index: int) -> int:
 	var removed := 0
-	var limit := 1 + hand_skill * 2
+	var limit := 6 + hand_skill * 5
 	var candidates: Array[int] = [center_index]
-	if hand_skill > 0:
-		for nearby in foam_near(foam_positions[center_index], FOAM_DIAMETER * (2.0 + float(hand_skill))):
-			if nearby != center_index:
-				candidates.append(nearby)
+	for nearby in foam_near(foam_positions[center_index], 0.30 + float(hand_skill) * 0.14):
+		if nearby != center_index:
+			candidates.append(nearby)
+	candidates.sort_custom(func(a: int, b: int) -> bool:
+		return foam_positions[a].distance_squared_to(foam_positions[center_index]) < foam_positions[b].distance_squared_to(foam_positions[center_index])
+	)
 	for index in candidates:
 		if removed >= limit:
 			break
@@ -2362,16 +2497,16 @@ func _physics_process(delta: float) -> void:
 	if not playing or game_paused:
 		return
 	hand_cooldown = maxf(0.0, hand_cooldown - delta)
-	if selected_tool == 0 and cleanup_phase <= 1 and mouse_captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and hand_cooldown <= 0:
+	if selected_tool == 2 and cleanup_phase == 1 and mouse_captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and hand_cooldown <= 0:
 		search_center()
+		hand_cooldown = 0.12
+	if selected_tool == 1 and cleanup_phase == 0 and mouse_captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and hand_cooldown <= 0:
+		vacuum_foam()
 		hand_cooldown = 0.12
 	blow_cooldown = maxf(0.0, blow_cooldown - delta)
 	push_cooldown = maxf(0.0, push_cooldown - delta)
 	last_foam_assist_timer += delta
 	update_cleanup_automation(delta)
-	if blower_on and mouse_captured and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and blow_cooldown <= 0.0:
-		blow_forward()
-		blow_cooldown = 0.22
 	var axis := Vector2.ZERO
 	if movement_keys[KEY_A]: axis.x -= 1.0
 	if movement_keys[KEY_D]: axis.x += 1.0
@@ -2397,6 +2532,8 @@ func _physics_process(delta: float) -> void:
 	move_foam(delta)
 	update_uv_hint()
 	update_switch_prompt()
+	if status_icon.visible:
+		status_icon.modulate.a = 0.75 + 0.25 * sin(float(Time.get_ticks_msec()) * 0.009)
 
 
 func set_crouching(enabled: bool) -> void:
@@ -2407,6 +2544,22 @@ func set_crouching(enabled: bool) -> void:
 
 
 func update_switch_prompt() -> void:
+	if cleanup_phase == 2 and not carried_items.is_empty():
+		for item in carried_items:
+			var target: Vector3 = item.get_meta("target")
+			if Vector2(player.position.x, player.position.z).distance_to(Vector2(target.x, target.z)) < 1.35 + float(organize_skill) * 0.3:
+				hint.text = "E: PLACE OBJECT  %d/%d CARRIED" % [carried_items.size(), 1 + int(hand_skill >= 1)]
+				hint_panel.visible = true
+				return
+	var station_spot := Vector2(player.position.x, player.position.z)
+	if station_spot.distance_to(Vector2(-2.0, station_z)) < 1.2:
+		hint.text = "E: EMPTY VACUUM  %d/%d" % [vacuum_load, vacuum_capacity]
+		hint_panel.visible = true
+		return
+	if station_spot.distance_to(Vector2(2.0, station_z)) < 1.2:
+		hint.text = "E: RINSE MOP  %d/%d" % [mop_load, mop_capacity]
+		hint_panel.visible = true
+		return
 	if current_level == 5 and playing and not game_paused:
 		if not loft_cache_claimed and player.position.y > 0.75 and Vector2(player.position.x, player.position.z).distance_to(Vector2(-9.6, -10.8)) < 1.5:
 			hint.text = "E: COLLECT LOFT CACHE"
@@ -2453,23 +2606,27 @@ func update_cleanup_automation(delta: float) -> void:
 	vacuum_timer = maxf(0.0, vacuum_timer - delta)
 	helper_timer = maxf(0.0, helper_timer - delta)
 	var collected := 0
-	if owns_vacuum and vacuum_timer <= 0.0:
-		var radius := 1.0 + float(vacuum_level) * 0.35
-		var limit := 1 + vacuum_level
-		for index in foam_near(player.global_position, radius):
-			if collected >= limit:
-				break
-			if foam_alive[index]:
-				remove_foam(index)
-				collected += 1
-		vacuum_timer = 0.48 if vacuum_level == 1 else 0.25
-	if owns_helper and helper_timer <= 0.0:
+	if owns_helper and is_instance_valid(helper_robot):
 		for index in foam_alive.size():
 			if foam_alive[index]:
+				var destination := Vector3(foam_positions[index].x, 0.0, foam_positions[index].z)
+				helper_robot.position = helper_robot.position.move_toward(destination, delta * (2.4 + float(helper_level) * 0.9))
+				break
+	if owns_helper and helper_timer <= 0.0:
+		if helper_load >= helper_capacity:
+			helper_load = 0
+			helper_timer = 2.0 / (1.0 + float(helper_level) * 0.3)
+			return
+		var helped := 0
+		for index in foam_near(helper_robot.position + Vector3.UP * 0.25, 0.9):
+			if foam_alive[index]:
 				remove_foam(index)
 				collected += 1
-				break
-		helper_timer = 1.4
+				helped += 1
+				helper_load += 1
+				if helped >= 4 + helper_level * 2 or helper_load >= helper_capacity:
+					break
+		helper_timer = 0.9 / (1.0 + float(helper_level) * 0.3)
 	if collected > 0:
 		removed_foam = mini(current_foam_count, removed_foam + collected)
 		message = "Cleanup gear collected %d foam bead%s." % [collected, "s" if collected > 1 else ""]
@@ -2477,6 +2634,44 @@ func update_cleanup_automation(delta: float) -> void:
 			advance_cleanup_phase()
 		else:
 			update_ui()
+
+
+func vacuum_foam() -> void:
+	if vacuum_load >= vacuum_capacity:
+		message = "Vacuum full. Press E at the orange bin to empty it."
+		update_ui()
+		return
+	var forward := -view.global_basis.z
+	var collected := 0
+	for index in foam_near(view.global_position, vacuum_range):
+		if vacuum_load >= vacuum_capacity or collected >= 5 + blower_skill * 2:
+			break
+		var offset := foam_positions[index] - view.global_position
+		if offset.length_squared() > 0.01 and forward.dot(offset.normalized()) > 0.56:
+			remove_foam(index)
+			vacuum_load += 1
+			collected += 1
+	if collected > 0:
+		removed_foam += collected
+		last_foam_assist_timer = 0.0
+		message = "Vacuum %d/%d  ·  %d foam left" % [vacuum_load, vacuum_capacity, current_foam_count - removed_foam]
+		if removed_foam >= current_foam_count:
+			advance_cleanup_phase()
+		update_ui()
+
+
+func use_service_station() -> bool:
+	var spot := Vector2(player.position.x, player.position.z)
+	if spot.distance_to(Vector2(-2.0, station_z)) < 1.2:
+		vacuum_load = 0
+		message = "Vacuum emptied."
+	elif spot.distance_to(Vector2(2.0, station_z)) < 1.2:
+		mop_load = 0
+		message = "Mop rinsed."
+	else:
+		return false
+	update_ui()
+	return true
 
 
 func move_foam(delta: float) -> void:
@@ -2624,12 +2819,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			pause_game()
 		elif event.keycode == KEY_1 and playing:
 			select_tool(0)
-		elif event.keycode == KEY_2 and playing and owns_uv:
+		elif event.keycode == KEY_2 and playing:
 			select_tool(1)
-		elif event.keycode == KEY_3 and playing and owns_blower:
+		elif event.keycode == KEY_3 and playing:
 			select_tool(2)
 		elif event.keycode == KEY_E and playing:
-			if not interact_mansion_feature():
+			if not deliver_carried_items() and not use_service_station() and not interact_mansion_feature():
 				search_center()
 	if event is InputEventMouseMotion and mouse_captured:
 		player.rotate_y(-event.relative.x * LOOK_SPEED)
@@ -2656,38 +2851,16 @@ func search_center() -> void:
 		toggle_room_light()
 		return
 	if cleanup_phase > 0:
+		if selected_tool != (2 if cleanup_phase == 1 else 0):
+			message = "Select the mop [3]." if cleanup_phase == 1 else "Select your hands [1]."
+			update_ui()
+			return
 		interact_cleanup_task(origin, direction)
 		return
-	if uv_on:
-		message = "UV is scanning. Switch to your hand or blower to move foam."
-		update_ui()
+	if selected_tool == 1:
+		vacuum_foam()
 		return
-	if owns_blower and blower_on:
-		blow_forward()
-		return
-	var foam_hit := ray_pick_foam(origin, direction, 3.2)
-	var query := PhysicsRayQueryParameters3D.create(origin, origin + direction * 3.2)
-	query.collision_mask = 2
-	var pearl_hit := get_world_3d().direct_space_state.intersect_ray(query)
-	var pearl_distance := origin.distance_to(pearl_hit["position"]) if not pearl_hit.is_empty() else INF
-	if foam_hit["index"] >= 0 and foam_hit["distance"] < pearl_distance:
-		var index: int = foam_hit["index"]
-		var picked := remove_foam_cluster(index)
-		removed_foam += picked
-		last_foam_assist_timer = 0.0
-		message = "%d foam bead%s removed." % [picked, "s" if picked > 1 else ""]
-		if removed_foam >= current_foam_count:
-			advance_cleanup_phase()
-	elif not pearl_hit.is_empty():
-		var bead: PhysicsBody3D = pearl_hit["collider"]
-		found += 1
-		pearls.erase(bead)
-		message = "Pearl found! %d / %d" % [found, PEARL_COUNT]
-		if found == PEARL_COUNT:
-			open_shop()
-		bead.queue_free()
-	else:
-		message = "Move closer to the foam and aim at a bead."
+	message = "Select the vacuum [2] to collect foam."
 	update_ui()
 
 
@@ -2713,7 +2886,7 @@ func ray_pick_foam(origin: Vector3, direction: Vector3, max_distance: float) -> 
 					if along < 0.0 or along > max_distance or along >= best_distance:
 						continue
 					var side_squared := offset.length_squared() - along * along
-					if side_squared <= FOAM_RADIUS * FOAM_RADIUS:
+					if side_squared <= 0.19 * 0.19:
 						best_index = i
 						best_distance = along
 		step += 0.25
@@ -2763,22 +2936,21 @@ func update_shop() -> void:
 	buy_blower_button.visible = true
 	upgrade_uv_button.visible = false
 	upgrade_blower_button.visible = false
-	buy_gloves_button.text = "REINFORCED GLOVES   %s\nPick up 3 foam beads at once" % ("OWNED" if hand_skill >= 1 else "$20")
+	buy_gloves_button.text = "SECOND HAND   %s\nReturn 2 nearby objects per click" % ("OWNED" if hand_skill >= 1 else "$20")
 	buy_gloves_button.disabled = hand_skill >= 1 or coins < 20
-	buy_mop_button.text = "WIDE MOP   %s\nScrub faster and clean nearby stains" % ("OWNED" if mop_skill >= 1 else "$30")
+	buy_mop_button.text = "WIDE MOP   %s\nScrub faster; rinse less often" % ("OWNED" if mop_skill >= 1 else "$30")
 	buy_mop_button.disabled = mop_skill >= 1 or coins < 30
 	buy_boots_button.text = "LIGHT WORK BOOTS   %s\nWalk 12%% faster" % ("OWNED" if mobility_skill >= 1 else "$40")
 	buy_boots_button.disabled = mobility_skill >= 1 or coins < 40
 	buy_magnet_button.text = "ORGANIZER MAGNET   %s\nLonger reach and faster placement" % ("OWNED" if organize_skill >= 1 else "$50")
 	buy_magnet_button.disabled = organize_skill >= 1 or coins < 50
-	buy_blower_button.text = "FOAM BLOWER   %s\nPush piles away to open a path" % ("OWNED" if owns_blower else "$70")
+	buy_blower_button.text = "VACUUM REACH   %s\nSuck foam from farther away" % ("OWNED" if owns_blower else "$70")
 	buy_blower_button.disabled = owns_blower or coins < 70
 	var vacuum_price := 130 if vacuum_level == 0 else 180
-	var vacuum_state := "$%d" % vacuum_price if vacuum_level < 2 else "MAX"
-	buy_vacuum_button.text = "FOAM VACUUM   %s\nAuto-collect foam near your feet%s" % [vacuum_state, " faster" if vacuum_level == 1 else ""]
+	buy_vacuum_button.text = "LARGER VACUUM TANK   %s\nHold 12 more foam per upgrade" % ("MAX" if vacuum_level >= 2 else "$%d" % vacuum_price)
 	buy_vacuum_button.disabled = vacuum_level >= 2 or coins < vacuum_price
-	buy_helper_button.text = "CLEANUP HELPER   %s\nCollects one foam bead every 1.4 sec" % ("OWNED" if owns_helper else "$220")
-	buy_helper_button.disabled = owns_helper or coins < 220
+	buy_helper_button.text = "VACUUM ROBOT   %s\n%s" % ["$220" if not owns_helper else ("MAX" if helper_level >= 2 else "$%d" % (150 + helper_level * 100)), "Buy a helper" if not owns_helper else "Upgrade tank and speed"]
+	buy_helper_button.disabled = (owns_helper and helper_level >= 2) or coins < (220 if not owns_helper else 150 + helper_level * 100)
 	next_level_button.disabled = false
 	next_level_button.text = "ENTER ROOM %d" % (current_level + 1) if current_level < 5 else "REPLAY BALLROOM"
 	update_skill_tree()
@@ -2806,10 +2978,7 @@ func buy_blower() -> void:
 		return
 	coins -= 70
 	owns_blower = true
-	blower_level = 1
-	blower_skill = maxi(blower_skill, 1)
-	if tool_buttons.size() >= 3:
-		tool_buttons[2].visible = true
+	vacuum_range += 0.8
 	update_shop()
 
 
@@ -2824,6 +2993,7 @@ func buy_wide_mop() -> void:
 	if coins < 30 or mop_skill >= 1: return
 	coins -= 30
 	mop_skill = 1
+	mop_capacity += 3
 	update_shop()
 
 
@@ -2847,13 +3017,19 @@ func buy_vacuum() -> void:
 	coins -= cost
 	vacuum_level += 1
 	owns_vacuum = true
+	vacuum_capacity += 12
 	update_shop()
 
 
 func buy_helper() -> void:
-	if coins < 220 or owns_helper: return
-	coins -= 220
-	owns_helper = true
+	var cost := 220 if not owns_helper else 150 + helper_level * 100
+	if coins < cost or helper_level >= 2: return
+	coins -= cost
+	if not owns_helper:
+		owns_helper = true
+	else:
+		helper_level += 1
+		helper_capacity += 12
 	update_shop()
 
 
@@ -2881,22 +3057,18 @@ func next_level() -> void:
 
 
 func select_tool(index: int) -> void:
-	if index == 1 and not owns_uv:
-		return
-	if index == 2 and not owns_blower:
-		return
 	selected_tool = index
-	uv_on = index == 1
-	blower_on = index == 2
-	uv_flashlight.visible = uv_on
+	uv_on = false
+	blower_on = false
+	uv_flashlight.visible = false
 	var tool_colors := [Color("533f5c"), Color("713ba0"), Color("326f85")]
 	var nozzle_colors := [Color("24202e"), Color("33214c"), Color("183c4a")]
 	held_tool_body.material_override = make_material(tool_colors[index])
 	held_tool_nozzle.material_override = make_material(nozzle_colors[index])
 	match index:
-		0: message = "HOLD LEFT MOUSE: Scrub stains with the mop." if cleanup_phase == 1 else "HOLD LEFT MOUSE / E: Pick up foam."
-		1: message = "UV selected: the marker points toward the pearl."
-		2: message = "Blower selected: hold click to send foam flying."
+		0: message = "Click fallen objects to put them back."
+		1: message = "Hold click to vacuum foam. Empty the tank at the orange bin."
+		2: message = "Hold click to scrub stains. Rinse at the blue basin."
 	update_ui()
 
 
@@ -2912,6 +3084,14 @@ func toggle_room_light() -> void:
 
 func update_uv_hint() -> void:
 	uv_marker.visible = false
+	if cleanup_phase == 2 and not carried_items.is_empty():
+		var target: Vector3 = carried_items[0].get_meta("target")
+		var distance := player.global_position.distance_to(target)
+		var screen := get_viewport().get_visible_rect().size
+		uv_marker.text = "◆  PLACE OBJECT  ·  %.1fm" % distance
+		uv_marker.position = view.unproject_position(target).clamp(Vector2(30.0, 125.0), screen - Vector2(260.0, 55.0)) if not view.is_position_behind(target) else Vector2(screen.x * 0.5 - 130.0, 125.0)
+		uv_marker.visible = true
+		return
 	if pearls.is_empty():
 		update_last_foam_assist()
 		return
@@ -3024,6 +3204,18 @@ func pearl_fully_visible(origin: Vector3, target: Vector3) -> bool:
 func update_ui() -> void:
 	if hud == null:
 		return
+	var vacuum_full := vacuum_load >= vacuum_capacity
+	var mop_dirty := mop_load >= mop_capacity
+	tool_buttons[0].icon = load("res://icon_hand.svg")
+	tool_buttons[1].icon = load("res://icon_vacuum_full.svg" if vacuum_full else "res://icon_vacuum.svg")
+	tool_buttons[2].icon = load("res://icon_mop_dirty.svg" if mop_dirty else "res://icon_mop.svg")
+	status_icon.visible = playing and ((selected_tool == 1 and vacuum_full) or (selected_tool == 2 and mop_dirty))
+	if status_icon.visible:
+		status_icon.texture = tool_buttons[selected_tool].icon
+	if selected_tool == 1:
+		held_tool_body.material_override = vacuum_full_material if vacuum_full else vacuum_ready_material
+	for cloth in mop_cloths:
+		cloth.material_override = mop_dirty_material if mop_dirty else mop_clean_material
 	var progress := "%d/%d FOAM" % [removed_foam, current_foam_count]
 	if cleanup_phase == 1:
 		progress = "%d/%d SURFACES" % [cleaned_surfaces, room_dirt_counts[current_level - 1]]
@@ -3033,13 +3225,13 @@ func update_ui() -> void:
 	var foam_percent := int(100.0 * removed_foam / maxi(1, current_foam_count))
 	var dirt_percent := int(100.0 * cleaned_surfaces / room_dirt_counts[current_level - 1])
 	var item_percent := int(100.0 * organized_items / room_item_counts[current_level - 1])
-	hud.text = "%s\nJOB %02d / 05\n------------------------\nRemove foam          %d%%\nClean surfaces        %d%%\nReturn objects         %d%%\n------------------------\nACCOUNT                  $%d\nSKILL POINTS               %d\n\n%s\n%s" % [cleanup_room_names[current_level - 1], current_level, foam_percent, dirt_percent, item_percent, coins, skill_points, phase_names[cleanup_phase], progress]
+	hud.text = "%s\nJOB %02d / 05\n------------------------\nRemove foam          %d%%\nClean surfaces        %d%%\nReturn objects         %d%%\n------------------------\nVACUUM  %d/%d   MOP  %d/%d\nACCOUNT                  $%d\nSKILL POINTS               %d\n\n%s\n%s" % [cleanup_room_names[current_level - 1], current_level, foam_percent, dirt_percent, item_percent, vacuum_load, vacuum_capacity, mop_load, mop_capacity, coins, skill_points, phase_names[cleanup_phase], progress]
 	# Only show the gun when the selected equipment really is a gun.
 	for part in held_tool_root.get_children():
 		if part is MeshInstance3D:
-			part.visible = selected_tool != 0 or part.get_index() in [3, 4]
+			part.visible = selected_tool == 1 or part.get_index() in [3, 4]
 	if mop_model != null:
-		mop_model.visible = cleanup_phase == 1
+		mop_model.visible = selected_tool == 2
 		mop_model.rotation.z = sin(tool_bob_time * 3.0) * 0.035
 
 	hint.text = message
@@ -3051,7 +3243,10 @@ func update_ui() -> void:
 		style.border_width_top = 4 if i == selected_tool else 2
 		style.border_width_right = 4 if i == selected_tool else 2
 		style.border_width_bottom = 4 if i == selected_tool else 2
-		style.border_color = Color("fff1c4") if i == selected_tool else Color("708b9a")
+		var needs_service := (i == 1 and vacuum_full) or (i == 2 and mop_dirty)
+		style.border_color = Color("ff9e49") if needs_service else (Color("fff1c4") if i == selected_tool else Color("708b9a"))
+		if needs_service:
+			style.bg_color = Color("68372e")
 		style.corner_radius_top_left = 4
 		style.corner_radius_top_right = 4
 		style.corner_radius_bottom_left = 4
